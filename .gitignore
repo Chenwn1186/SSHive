@@ -65,5 +65,4 @@ http_server.log
 ios/Flutter/ephemeral/
 macos/Flutter/ephemeral/
 
-# 界面截图（可能包含本机服务器/隧道信息，默认不入库）
-design/win_screenshot.png
+# 界面截图已确认无敏感信息，正常入库

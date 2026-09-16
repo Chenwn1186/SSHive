@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:sshagent/services/ssh_command_parser.dart';
+import 'package:sshive/services/ssh_command_parser.dart';
 
 void main() {
   group('parseSshCommand', () {

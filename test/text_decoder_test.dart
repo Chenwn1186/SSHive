@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:fast_gbk/fast_gbk.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:sshagent/services/text_decoder.dart';
+import 'package:sshive/services/text_decoder.dart';
 
 void main() {
   group('decodeTextBytes', () {

@@ -8,7 +8,7 @@
 PRODUCT_NAME = sshagent
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.chenwnx.sshagent
+PRODUCT_BUNDLE_IDENTIFIER = com.chenwnx.sshive
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 com.chenwnx. All rights reserved.

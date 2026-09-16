@@ -50,7 +50,7 @@ class WebScrollSettings extends ChangeNotifier {
     await SecureStore.instance.saveWebScrollMultiplier(clamped);
     if (Platform.isWindows) {
       try {
-        await const MethodChannel('com.chenwnx.sshagent/webview_scroll')
+        await const MethodChannel('com.chenwnx.sshive/webview_scroll')
             .invokeMethod('setMultiplier', {'value': clamped});
         LogBus.instance.info('WebView', '滚动幅度已热更新为 $clamped');
       } catch (e) {

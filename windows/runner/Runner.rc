@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.chenwnx" "\0"
-            VALUE "FileDescription", "sshagent" "\0"
+            VALUE "FileDescription", "SSHive" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "sshagent" "\0"
+            VALUE "InternalName", "sshive" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.chenwnx. All rights reserved." "\0"
-            VALUE "OriginalFilename", "sshagent.exe" "\0"
-            VALUE "ProductName", "sshagent" "\0"
+            VALUE "OriginalFilename", "sshive.exe" "\0"
+            VALUE "ProductName", "SSHive" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

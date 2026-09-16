@@ -1,5 +1,5 @@
-name: sshagent
-description: "A new Flutter project."
+name: sshive
+description: "SSHive - lightweight SSH tunnel client: remember-and-connect SSH servers, forward remote ports to local, and use remote WebUI / file manager / terminal inside one app."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -67,7 +67,7 @@ dev_dependencies:
 # - kterm：修复 Windows 桌面 TextInput 连接依赖一次性 keyboard token
 #   导致按键丢失的问题（custom_text_edit.dart）。
 # - flutter_inappwebview_windows：滚轮倍率热更新补丁（sendScroll 读动态成员
-#   scrollMultiplier_ + 静态通道 com.chenwnx.sshagent/webview_scroll），
+#   scrollMultiplier_ + 静态通道 com.chenwnx.sshive/webview_scroll），
 #   实现改滚动幅度即时生效且不重建 WebView（重建会损坏共享 WebView2 环境）。
 # - re_editor：文本/代码查看器滚轮倍率补丁（CodeWheelScale.factor，
 #   applyPhysicsToUserOffset 放大用户滚动输入）。

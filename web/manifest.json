@@ -1,6 +1,6 @@
 {
-    "name": "sshagent",
-    "short_name": "sshagent",
+    "name": "SSHive",
+    "short_name": "SSHive",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

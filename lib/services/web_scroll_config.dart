@@ -10,7 +10,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 /// 通过 AdditionalBrowserArguments 传入 `--disable-features=HttpsUpgrades`
 /// 关闭该升级；参考 MicrosoftEdge/WebView2Feedback#4104。
 /// 未指定 userDataFolder → 沿用 WebView2 默认（exe 同级目录下的
-/// "应用名.WebView2"，如 sshagent.exe.WebView2），Cookie 持久化位置不变。
+/// "应用名.WebView2"，如 sshive.exe.WebView2），Cookie 持久化位置不变。
 WebViewEnvironment? gWebViewEnvironment;
 
 /// 是否启用滚轮增量校准（仅 Windows 的 WebView2 有此缺陷；

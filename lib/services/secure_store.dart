@@ -13,6 +13,7 @@ class SecureStore {
 
   static final SecureStore instance = SecureStore._();
 
+  // 存储键沿用历史前缀 sshagent_（改名后保持不换，避免已保存的配置/密码读不到）
   static const _serversKey = 'sshagent_servers';
   static const _tunnelsKey = 'sshagent_tunnels';
   static const _keepAliveKey = 'sshagent_keepalive';

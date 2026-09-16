@@ -17,7 +17,7 @@ namespace flutter_inappwebview_plugin
   class FlutterInappwebviewWindowsPlugin : public flutter::Plugin {
   public:
     // ssh_agent patch: 静态通道名（Dart 侧 MethodChannel 同名调用）
-    static inline const std::string SCROLL_CHANNEL_NAME = "com.chenwnx.sshagent/webview_scroll";
+    static inline const std::string SCROLL_CHANNEL_NAME = "com.chenwnx.sshive/webview_scroll";
 
     flutter::PluginRegistrarWindows* registrar;
     std::unique_ptr<WebViewEnvironmentManager> webViewEnvironmentManager;

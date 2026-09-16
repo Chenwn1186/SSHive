@@ -72,16 +72,16 @@ Future<void> main() async {
   // 自动连接标记了 autoConnect 的服务器（内部也会自动启动 autoStart 隧道）
   await AppState.instance.applyAutoConnect();
 
-  runApp(const SshAgentApp());
+  runApp(const SshiveApp());
 }
 
-class SshAgentApp extends StatelessWidget {
-  const SshAgentApp({super.key});
+class SshiveApp extends StatelessWidget {
+  const SshiveApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'SSH Agent',
+      title: 'SSHive',
       debugShowCheckedModeBanner: false,
       // 全局安全区适配：Android 15+ 强制 edge-to-edge，内容会延伸到
       // 系统导航栏/状态栏之下，这里统一为页面内容避开系统导航栏
