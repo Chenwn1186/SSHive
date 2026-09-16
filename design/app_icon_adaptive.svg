@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="432" height="432" viewBox="0 0 432 432">
+  <defs>
+    <linearGradient id="screen" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="beam" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2dd4bf" stop-opacity="0"/>
+      <stop offset="55%" stop-color="#2dd4bf" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#2dd4bf" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="14" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <!-- 先平移到原点 → 缩放(0.28) → 移到画布中心(216,216)。图形原始中心 (521,516) -->
+  <g transform="translate(216,216) scale(0.28) translate(-521,-516)">
+    <!-- 终端窗口 -->
+    <rect x="212" y="148" width="600" height="448" rx="56" fill="#ffffff" opacity="0.13"/>
+    <rect x="212" y="148" width="600" height="448" rx="56" fill="none" stroke="#ffffff" stroke-width="6" stroke-opacity="0.4"/>
+    <rect x="212" y="148" width="600" height="100" rx="56" fill="#ffffff" opacity="0.10"/>
+    <circle cx="284" cy="198" r="17" fill="#f87171"/>
+    <circle cx="338" cy="198" r="17" fill="#fbbf24"/>
+    <circle cx="392" cy="198" r="17" fill="#34d399"/>
+    <!-- 屏幕 -->
+    <rect x="246" y="268" width="532" height="288" rx="30" fill="url(#screen)"/>
+    <!-- 提示符 -->
+    <path d="M330 392 L418 418 L330 444" stroke="#34d399" stroke-width="34" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="464" y="342" width="30" height="158" rx="15" fill="#34d399"/>
+    <!-- 隧道光束 -->
+    <path d="M512 556 C 505 680, 402 680, 320 770" stroke="url(#beam)" stroke-width="26" fill="none" stroke-linecap="round" filter="url(#glow)"/>
+    <!-- 远程节点 -->
+    <circle cx="320" cy="808" r="76" fill="#0f172a" opacity="0.9"/>
+    <circle cx="320" cy="808" r="76" fill="none" stroke="#2dd4bf" stroke-width="9" opacity="0.95"/>
+    <rect x="287" y="798" width="66" height="52" rx="13" fill="#2dd4bf"/>
+    <path d="M287 798 v-19 a33 33 0 0 1 66 0 v19" fill="none" stroke="#2dd4bf" stroke-width="11" stroke-linecap="round"/>
+    <circle cx="320" cy="824" r="9" fill="#0f172a"/>
+    <!-- 星点 -->
+    <circle cx="860" cy="190" r="18" fill="#ffffff" opacity="0.35"/>
+    <circle cx="164" cy="540" r="12" fill="#ffffff" opacity="0.22"/>
+  </g>
+</svg>
