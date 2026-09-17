@@ -1,60 +1,34 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 48 48">
+  <!-- SSHive 应用图标（主稿）
+       48×48 网格 / 透明底 / 内容铺满 46/48 = 96%（与 Office 同级视觉尺寸）
+       底板：2 列 × 3 行窗格（深浅色块 + 细分隔缝） -->
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#14b8a6"/>
-      <stop offset="52%" stop-color="#0e7490"/>
-      <stop offset="100%" stop-color="#3730a3"/>
-    </linearGradient>
-    <linearGradient id="screen" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#0f172a"/>
-      <stop offset="100%" stop-color="#1e293b"/>
-    </linearGradient>
-    <linearGradient id="beam" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#2dd4bf" stop-opacity="0"/>
-      <stop offset="55%" stop-color="#2dd4bf" stop-opacity="0.9"/>
-      <stop offset="100%" stop-color="#2dd4bf" stop-opacity="0"/>
-    </linearGradient>
-    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
-      <feGaussianBlur stdDeviation="14" result="b"/>
-      <feMerge>
-        <feMergeNode in="b"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
+    <clipPath id="plate"><rect x="6" y="1" width="41" height="46" rx="4"/></clipPath>
+    <filter id="badgeShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="0.7" stdDeviation="0.9" flood-color="#06231F" flood-opacity="0.34"/>
     </filter>
   </defs>
 
-  <!-- 圆角渐变背景 -->
-  <rect x="0" y="0" width="1024" height="1024" rx="224" fill="url(#bg)"/>
-  <!-- 顶部微妙高光 -->
-  <rect x="0" y="0" width="1024" height="460" rx="224" fill="#ffffff" opacity="0.05"/>
+  <!-- 层 1：底板 -->
+  <g clip-path="url(#plate)">
+    <rect x="6" y="1" width="41" height="46" fill="#0B6B62"/>
+    <!-- 上行 -->
+    <rect x="6"    y="1"    width="20.1" height="14.8" fill="#0EA5A0"/>
+    <rect x="26.9" y="1"    width="20.1" height="14.8" fill="#0C9B96"/>
+    <!-- 中行 -->
+    <rect x="6"    y="16.6" width="20.1" height="14.8" fill="#0D9488"/>
+    <rect x="26.9" y="16.6" width="20.1" height="14.8" fill="#0E8579"/>
+    <!-- 下行 -->
+    <rect x="6"    y="32.2" width="20.1" height="14.8" fill="#0E8579"/>
+    <rect x="26.9" y="32.2" width="20.1" height="14.8" fill="#0E7C72"/>
+  </g>
 
-  <!-- 终端窗口（白色半透明 + 细描边） -->
-  <rect x="212" y="148" width="600" height="448" rx="56" fill="#ffffff" opacity="0.13"/>
-  <rect x="212" y="148" width="600" height="448" rx="56" fill="none" stroke="#ffffff" stroke-width="6" stroke-opacity="0.4"/>
-  <!-- 标题栏 + 窗口控制点 -->
-  <rect x="212" y="148" width="600" height="100" rx="56" fill="#ffffff" opacity="0.10"/>
-  <circle cx="284" cy="198" r="17" fill="#f87171"/>
-  <circle cx="338" cy="198" r="17" fill="#fbbf24"/>
-  <circle cx="392" cy="198" r="17" fill="#34d399"/>
+  <!-- 层 2：徽标底板 -->
+  <rect x="1" y="21" width="18" height="18" rx="2" fill="#0E7C72" filter="url(#badgeShadow)"/>
 
-  <!-- 屏幕 -->
-  <rect x="246" y="268" width="532" height="288" rx="30" fill="url(#screen)"/>
-
-  <!-- 提示符 >_（矢量绘制，无字体依赖） -->
-  <path d="M330 392 L418 418 L330 444" stroke="#34d399" stroke-width="34" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="464" y="342" width="30" height="158" rx="15" fill="#34d399"/>
-
-  <!-- 隧道光束（屏幕底部 → 远程节点，发光） -->
-  <path d="M512 556 C 505 680, 402 680, 320 770" stroke="url(#beam)" stroke-width="26" fill="none" stroke-linecap="round" filter="url(#glow)"/>
-
-  <!-- 远程节点（圆环 + 锁 = SSH 安全连接） -->
-  <circle cx="320" cy="808" r="76" fill="#0f172a" opacity="0.9"/>
-  <circle cx="320" cy="808" r="76" fill="none" stroke="#2dd4bf" stroke-width="9" opacity="0.95"/>
-  <rect x="287" y="798" width="66" height="52" rx="13" fill="#2dd4bf"/>
-  <path d="M287 798 v-19 a33 33 0 0 1 66 0 v19" fill="none" stroke="#2dd4bf" stroke-width="11" stroke-linecap="round"/>
-  <circle cx="320" cy="824" r="9" fill="#0f172a"/>
-
-  <!-- 背景装饰：远端星点 -->
-  <circle cx="860" cy="190" r="18" fill="#ffffff" opacity="0.35"/>
-  <circle cx="164" cy="540" r="12" fill="#ffffff" opacity="0.22"/>
+  <!-- 层 3：终端提示符 -->
+  <g stroke="#FFFFFF" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M 4.5 25.5 L 9 30 L 4.5 34.5"/>
+    <path d="M 11.5 34.5 H 15.5"/>
+  </g>
 </svg>

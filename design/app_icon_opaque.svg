@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 48 48">
+  <!-- SSHive 应用图标（满幅不透明版）
+       用于 iOS / web 这类不允许透明通道、且平台会自行做圆角遮罩的场景：
+       窗格底板铺满整个画布，徽标居中，避开遮罩安全区。 -->
+  <defs>
+    <filter id="badgeShadowOpaque" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="0.7" stdDeviation="0.9" flood-color="#04191A" flood-opacity="0.34"/>
+    </filter>
+  </defs>
+
+  <!-- 层 1：满幅窗格 -->
+  <rect x="0" y="0" width="48" height="48" fill="#0B6B62"/>
+  <!-- 上行 -->
+  <rect x="0"    y="0"     width="23.6" height="15.6" fill="#0EA5A0"/>
+  <rect x="24.4" y="0"     width="23.6" height="15.6" fill="#0C9B96"/>
+  <!-- 中行 -->
+  <rect x="0"    y="16.2"  width="23.6" height="15.6" fill="#0D9488"/>
+  <rect x="24.4" y="16.2"  width="23.6" height="15.6" fill="#0E8579"/>
+  <!-- 下行 -->
+  <rect x="0"    y="32.4"  width="23.6" height="15.6" fill="#0E8579"/>
+  <rect x="24.4" y="32.4"  width="23.6" height="15.6" fill="#0E7C72"/>
+
+  <!-- 层 2：居中徽标 -->
+  <rect x="15" y="15" width="18" height="18" rx="2" fill="#0E7C72" filter="url(#badgeShadowOpaque)"/>
+
+  <!-- 层 3：终端提示符 -->
+  <g stroke="#FFFFFF" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M 19 19.5 L 23.5 24 L 19 28.5"/>
+    <path d="M 26 28.5 H 29"/>
+  </g>
+</svg>
