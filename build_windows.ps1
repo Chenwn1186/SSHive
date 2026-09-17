@@ -1,15 +1,17 @@
 ﻿# build_windows.ps1
-# 一键：构建 Windows release → 部署到 D:\exedirect\SSH-Agent-Windows-x64 →
+# 一键：构建 Windows release → 部署到 -Target 指定目录 →
 #      打包绿色 zip（同目录）→ 启动
 #
-# 用法：
-#   .\build_windows.ps1            完整流程（构建 + 部署 + 打包 zip + 启动）
-#   .\build_windows.ps1 -SkipBuild 跳过构建，仅部署 + 打包（上次构建产物）
-#   .\build_windows.ps1 -NoStart   部署后不启动
-#   .\build_windows.ps1 -SkipZip   跳过 zip 打包
-#   .\build_windows.ps1 -SkipBuild -NoStart -SkipZip
+# 用法（-Target 必填，传本机实际部署路径；目录不存在会自动创建）：
+#   .\build_windows.ps1 -Target 'D:\exe dire\SSHive'                     完整流程
+#   .\build_windows.ps1 -Target 'D:\exe dire\SSHive' -SkipBuild          跳过构建，仅部署
+#   .\build_windows.ps1 -Target 'D:\exe dire\SSHive' -NoStart            部署后不启动
+#   .\build_windows.ps1 -Target 'D:\exe dire\SSHive' -SkipZip            跳过 zip 打包
+#   .\build_windows.ps1 'D:\exe dire\SSHive' -SkipBuild -NoStart -SkipZip  位置参数写法
 #
 # 说明：
+#   - 部署目录不再硬编码，每次由 -Target 传入；会校验并拒绝盘符根目录、
+#     系统目录等危险目标（部署过程会清空目标目录，故做保护）
 #   - 构建/覆盖前会自动结束运行中的 sshive.exe（DLL 文件锁）
 #   - 部署时保留 WebView2 运行时数据目录（EBWebView / sshive.exe.WebView2），
 #     不丢失已登录网页的 Cookie 等数据
@@ -19,6 +21,10 @@
 #   - 绿色 zip 输出到部署目录下：<target>\SSHive-Windows-x64.zip
 
 param(
+  [Parameter(Mandatory = $true, Position = 0,
+    HelpMessage = '本机实际部署目录，例如 D:\exe dire\SSHive')]
+  [string]$Target,
+
   [switch]$SkipBuild,
   [switch]$NoStart,
   [switch]$SkipZip
@@ -28,9 +34,21 @@ $ErrorActionPreference = 'Stop'
 
 $root    = $PSScriptRoot
 $release = Join-Path $root 'build\windows\x64\runner\Release'
-$target  = 'D:\exedirect\SSH-Agent-Windows-x64'
 $exeName = 'sshive.exe'
 $zipName = 'SSHive-Windows-x64.zip'
+
+# ------------------------------------------------- 部署目录（由调用方传入）
+# 规范化路径，并在任何破坏性操作前做安全校验
+$target    = [System.IO.Path]::GetFullPath($Target.Trim().Trim('"'))
+$driveRoot = [System.IO.Path]::GetPathRoot($target).TrimEnd('\')
+if ($target.TrimEnd('\') -eq $driveRoot) {
+  Write-Error "拒绝部署到盘符根目录（会误删整盘）: $target"
+  exit 1
+}
+if ($target -like "$env:SystemRoot*") {
+  Write-Error "拒绝部署到系统目录: $target"
+  exit 1
+}
 
 # 运行时数据目录（部署时保留，不删除；旧名用于一次性迁移）
 $runtimeDirs  = @('EBWebView', 'sshive.exe.WebView2', 'sshagent.exe.WebView2')
@@ -49,8 +67,15 @@ if ($running) {
 
 # ---------------------------------------------------------------- 2. 构建
 if (-not $SkipBuild) {
+  if (-not (Get-Command flutter -ErrorAction SilentlyContinue)) {
+    Write-Error '未找到 flutter 命令，请先把 Flutter SDK 的 bin 目录加入 PATH'
+    exit 1
+  }
+  # flutter_inappwebview_windows 的 CMake 需要 nuget
+  if ((Test-Path 'D:\APPs\bin') -and -not (Get-Command nuget -ErrorAction SilentlyContinue)) {
+    $env:PATH = "D:\APPs\bin;$env:PATH"
+  }
   Write-Host '==> flutter build windows --release ...'
-  $env:PATH = "D:\APPs\bin;$env:PATH"   # nuget
   & flutter build windows --release
   if ($LASTEXITCODE -ne 0) {
     Write-Error '构建失败，已中止部署（未覆盖目标目录）'
