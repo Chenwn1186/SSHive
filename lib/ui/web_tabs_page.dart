@@ -214,6 +214,26 @@ class _ControlBar extends StatelessWidget {
     var uri = s.url;
     final current = await s.currentUrl();
     if (current != null) uri = current;
+
+    // 修复 token 丢失：部分服务（如 dsh-web）首次带 ?token=... 访问后会把
+    // token 从地址栏去掉，改用 Cookie 会话。而系统浏览器没有 WebView 的
+    // Cookie，必须把原始 token 补回地址才能打开。
+    final originalToken = s.url.queryParameters['token'];
+    if (originalToken != null && originalToken.isNotEmpty) {
+      final sameOrigin =
+          uri.host == s.url.host && uri.port == s.url.port;
+      final tokenMissing =
+          (uri.queryParameters['token'] ?? '').isEmpty;
+      if (sameOrigin && tokenMissing) {
+        uri = uri.replace(queryParameters: {
+          ...uri.queryParameters,
+          'token': originalToken,
+        });
+        LogBus.instance
+            .debug('Web', '外部浏览器打开：补回 token → $uri');
+      }
+    }
+
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok && context.mounted) {
       ScaffoldMessenger.of(context)
