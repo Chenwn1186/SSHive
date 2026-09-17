@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../models/server_config.dart';
 import '../services/app_state.dart';
+import '../services/dsh_discovery.dart';
 import '../services/log_bus.dart';
 import '../services/web_desktop_mode.dart';
 import '../services/web_scroll_config.dart';
@@ -473,68 +475,9 @@ class _WebPageView extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 Future<void> showNewTabDialog(BuildContext context) async {
-  final controller = TextEditingController(text: 'http://127.0.0.1:');
   final result = await showDialog<String>(
     context: context,
-    builder: (ctx) {
-      final app = AppState.instance;
-      final runningTunnels = app.tunnels
-          .where((t) => app.runtimeOf(t.id)?.isRunning ?? false)
-          .toList();
-      return AlertDialog(
-        title: const Text('新建网页标签'),
-        content: SizedBox(
-          width: 420,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(
-                controller: controller,
-                autofocus: true,
-                keyboardType: TextInputType.url,
-                decoration: const InputDecoration(
-                  labelText: '网址',
-                  hintText: 'http://127.0.0.1:8080',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              if (runningTunnels.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Text('运行中的隧道',
-                    style: Theme.of(ctx).textTheme.labelMedium),
-                const SizedBox(height: 4),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final t in runningTunnels)
-                      ActionChip(
-                        label: Text(
-                            '${t.name.isEmpty ? t.summary : t.name}\n'
-                            '127.0.0.1:${t.localPort}',
-                            style: const TextStyle(fontSize: 11)),
-                        onPressed: () =>
-                            Navigator.pop(ctx, 'http://127.0.0.1:${t.localPort}'),
-                      ),
-                  ],
-                ),
-              ],
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('打开'),
-          ),
-        ],
-      );
-    },
+    builder: (ctx) => const _NewTabDialog(),
   );
   if (result == null || result.isEmpty) return;
   var uri = Uri.tryParse(result);
@@ -552,6 +495,223 @@ Future<void> showNewTabDialog(BuildContext context) async {
   WebSessionManager.instance.open(url: uri, title: uri.host);
   // 确保停留在"网页"Tab（若从其他 Tab 触发）
   WebSessionManager.instance.requestTab(2);
+}
+
+/// 新建网页标签对话框：手动输入 / 运行中的隧道 /
+/// 自动发现的 DeepSeek Harness（dsh-web）最新地址（带 token）。
+class _NewTabDialog extends StatefulWidget {
+  const _NewTabDialog();
+
+  @override
+  State<_NewTabDialog> createState() => _NewTabDialogState();
+}
+
+class _NewTabDialogState extends State<_NewTabDialog> {
+  final TextEditingController _controller =
+      TextEditingController(text: 'http://127.0.0.1:');
+  bool _fetching = false;
+  String? _hint;
+  final List<DshEndpoint> _endpoints = [];
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  List<ServerConfig> get _connectedServers => AppState.instance.servers
+      .where((s) => AppState.instance.sessionOf(s.id)?.isConnected ?? false)
+      .toList();
+
+  /// 在所有已连接服务器上查找 dsh-web 最新地址。
+  Future<void> _fetchDsh() async {
+    final servers = _connectedServers;
+    if (servers.isEmpty) {
+      setState(() => _hint = '没有已连接的服务器，请先在「服务器」Tab 连接');
+      return;
+    }
+    setState(() {
+      _fetching = true;
+      _hint = null;
+      _endpoints.clear();
+    });
+    final results = await Future.wait([
+      for (final s in servers)
+        DshDiscovery.fetch(s.id, s.name.isEmpty ? s.host : s.name),
+    ]);
+    if (!mounted) return;
+    final found = results.whereType<DshEndpoint>().toList();
+    setState(() {
+      _fetching = false;
+      _endpoints
+        ..clear()
+        ..addAll(found);
+      _hint = found.isEmpty
+          ? '未找到地址（dsh-web 未运行，或日志中暂无带 token 的地址）'
+          : null;
+    });
+  }
+
+  /// 打开候选地址：隧道就绪直接打开，否则询问后自动建隧道。
+  Future<void> _openEndpoint(DshEndpoint ep) async {
+    if (ep.tunnelReady) {
+      Navigator.pop(context, ep.localUrl);
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('需要端口转发'),
+        content: Text(
+          '${ep.serverName} 上的 dsh-web 监听端口 ${ep.port}，'
+          '当前没有可用的本地隧道。\n\n'
+          '是否自动创建一条隧道并打开？\n'
+          '（本机空闲端口 → 127.0.0.1:${ep.port}）',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('创建并打开'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() {
+      _fetching = true;
+      _hint = '正在建立隧道…';
+    });
+    try {
+      final url = await DshDiscovery.ensureLocalUrl(ep);
+      if (!mounted) return;
+      Navigator.pop(context, url);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _fetching = false;
+        _hint = '建立隧道失败: $e';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final app = AppState.instance;
+    final runningTunnels = app.tunnels
+        .where((t) => app.runtimeOf(t.id)?.isRunning ?? false)
+        .toList();
+    final servers = _connectedServers;
+    return AlertDialog(
+      title: const Text('新建网页标签'),
+      content: SizedBox(
+        width: 460,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: _controller,
+                autofocus: true,
+                keyboardType: TextInputType.url,
+                decoration: const InputDecoration(
+                  labelText: '网址',
+                  hintText: 'http://127.0.0.1:8080',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              // DeepSeek Harness（dsh-web）地址自动发现
+              Row(
+                children: [
+                  Text('DeepSeek Harness 地址',
+                      style: theme.textTheme.labelMedium),
+                  const Spacer(),
+                  TextButton.icon(
+                    onPressed: _fetching || servers.isEmpty ? null : _fetchDsh,
+                    icon: _fetching
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.cloud_download_outlined, size: 16),
+                    label: Text(_fetching ? '获取中…' : '自动获取最新地址'),
+                  ),
+                ],
+              ),
+              if (_hint != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2, bottom: 4),
+                  child: Text(
+                    _hint!,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.outline,
+                    ),
+                  ),
+                ),
+              if (_endpoints.isNotEmpty)
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final ep in _endpoints)
+                      ActionChip(
+                        avatar: Icon(
+                          ep.tunnelReady ? Icons.link : Icons.link_off,
+                          size: 14,
+                          color: ep.tunnelReady ? Colors.green : null,
+                        ),
+                        label: Text(
+                          '${ep.serverName}\n'
+                          '${ep.tunnelReady ? '就绪 · 127.0.0.1:${ep.localPort}' : '需转发端口 ${ep.port}'}',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                        onPressed: _fetching ? null : () => _openEndpoint(ep),
+                      ),
+                  ],
+                ),
+              if (runningTunnels.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text('运行中的隧道', style: theme.textTheme.labelMedium),
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final t in runningTunnels)
+                      ActionChip(
+                        label: Text(
+                            '${t.name.isEmpty ? t.summary : t.name}\n'
+                            '127.0.0.1:${t.localPort}',
+                            style: const TextStyle(fontSize: 11)),
+                        onPressed: () => Navigator.pop(
+                            context, 'http://127.0.0.1:${t.localPort}'),
+                      ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _controller.text.trim()),
+          child: const Text('打开'),
+        ),
+      ],
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

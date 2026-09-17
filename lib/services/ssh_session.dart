@@ -196,6 +196,24 @@ class SshSession extends ChangeNotifier {
     return s;
   }
 
+  /// 在服务器上执行一条命令并返回标准输出（用于读取服务器运行时信息，
+  /// 例如 dsh-web 的最新访问地址）。未连接或超时抛异常。
+  Future<String> runCommand(
+    String command, {
+    Duration timeout = const Duration(seconds: 20),
+  }) async {
+    final c = _client;
+    if (c == null || c.isClosed) {
+      throw StateError('SSH 未连接，无法执行命令');
+    }
+    LogBus.instance.debug('SSH', '${server.name}: $command');
+    final result = await c.runWithResult(command).timeout(timeout);
+    final out = utf8.decode(result.stdout, allowMalformed: true).trim();
+    if (out.isNotEmpty) return out;
+    // 少数命令的内容只出现在合并输出里
+    return utf8.decode(result.output, allowMalformed: true).trim();
+  }
+
   /// 建立 PTY 远程终端会话。
   Future<SSHSession> shell({
     int cols = 80,
