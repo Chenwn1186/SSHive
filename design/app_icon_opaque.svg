@@ -1,29 +1,30 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 48 48">
   <!-- SSHive 应用图标（满幅不透明版）
        用于 iOS / web 这类不允许透明通道、且平台会自行做圆角遮罩的场景：
-       窗格底板铺满整个画布，徽标居中，避开遮罩安全区。 -->
+       窗格底板铺满整个画布，徽标居中，避开遮罩安全区。
+       底板明暗与主稿一致（随机分布，seed 27）。 -->
   <defs>
-    <filter id="badgeShadowOpaque" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="0.7" stdDeviation="0.9" flood-color="#04191A" flood-opacity="0.34"/>
+    <filter id="softShadowOpaque" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="1.15"/>
     </filter>
   </defs>
 
   <!-- 层 1：满幅窗格 -->
   <rect x="0" y="0" width="48" height="48" fill="#0B6B62"/>
-  <!-- 上行 -->
-  <rect x="0"    y="0"     width="23.6" height="15.6" fill="#0EA5A0"/>
-  <rect x="24.4" y="0"     width="23.6" height="15.6" fill="#0C9B96"/>
-  <!-- 中行 -->
-  <rect x="0"    y="16.2"  width="23.6" height="15.6" fill="#0D9488"/>
-  <rect x="24.4" y="16.2"  width="23.6" height="15.6" fill="#0E8579"/>
-  <!-- 下行 -->
-  <rect x="0"    y="32.4"  width="23.6" height="15.6" fill="#0E8579"/>
-  <rect x="24.4" y="32.4"  width="23.6" height="15.6" fill="#0E7C72"/>
+  <rect x="0"    y="0"     width="23.6" height="15.6" fill="#10AB9C"/>
+  <rect x="24.4" y="0"     width="23.6" height="15.6" fill="#0A5F59"/>
+  <rect x="0"    y="16.2"  width="23.6" height="15.6" fill="#14B8A6"/>
+  <rect x="24.4" y="16.2"  width="23.6" height="15.6" fill="#0D9488"/>
+  <rect x="0"    y="32.4"  width="23.6" height="15.6" fill="#0D867C"/>
+  <rect x="24.4" y="32.4"  width="23.6" height="15.6" fill="#0B6F67"/>
 
-  <!-- 层 2：居中徽标 -->
-  <rect x="15" y="15" width="18" height="18" rx="2" fill="#0E7C72" filter="url(#badgeShadowOpaque)"/>
+  <!-- 层 2：徽标投影（模糊，不投到图形符号之外） -->
+  <rect x="15" y="16.3" width="18" height="18" rx="2" fill="#04211E" opacity="0.55" filter="url(#softShadowOpaque)"/>
 
-  <!-- 层 3：终端提示符 -->
+  <!-- 层 3：居中徽标本体 -->
+  <rect x="15" y="15" width="18" height="18" rx="2" fill="#0E7C72"/>
+
+  <!-- 层 4：终端提示符 -->
   <g stroke="#FFFFFF" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" fill="none">
     <path d="M 19 19.5 L 23.5 24 L 19 28.5"/>
     <path d="M 26 28.5 H 29"/>

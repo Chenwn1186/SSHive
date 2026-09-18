@@ -1,27 +1,36 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="432" height="432" viewBox="0 0 432 432">
   <!-- SSHive · Android 自适应图标前景层
        108dp 画布（xxxhdpi = 432px），内容压在中央 72dp 安全区内。
-       内容 (1,1)-(47,47) 共 46×46 单位，缩放 5.5 倍 = 253×253，居中于 (216,216)。 -->
+       内容 (1,1)-(47,47) 共 46×46 单位，缩放 5.5 倍 = 253×253，居中于 (216,216)。
+       底板明暗与主稿一致（随机分布，seed 27）。 -->
   <defs>
     <clipPath id="plateAdaptive"><rect x="6" y="1" width="41" height="46" rx="4"/></clipPath>
-    <filter id="badgeShadowAdaptive" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="0.7" stdDeviation="0.9" flood-color="#06231F" flood-opacity="0.34"/>
+    <filter id="softShadowAdaptive" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="1.15"/>
     </filter>
   </defs>
 
   <g transform="translate(216,216) scale(5.5) translate(-24,-24)">
+    <!-- 层 1：底板 -->
     <g clip-path="url(#plateAdaptive)">
       <rect x="6" y="1" width="41" height="46" fill="#0B6B62"/>
-      <rect x="6"    y="1"    width="20.1" height="14.8" fill="#0EA5A0"/>
-      <rect x="26.9" y="1"    width="20.1" height="14.8" fill="#0C9B96"/>
-      <rect x="6"    y="16.6" width="20.1" height="14.8" fill="#0D9488"/>
-      <rect x="26.9" y="16.6" width="20.1" height="14.8" fill="#0E8579"/>
-      <rect x="6"    y="32.2" width="20.1" height="14.8" fill="#0E8579"/>
-      <rect x="26.9" y="32.2" width="20.1" height="14.8" fill="#0E7C72"/>
+      <rect x="6"    y="1"    width="20.1" height="14.8" fill="#10AB9C"/>
+      <rect x="26.9" y="1"    width="20.1" height="14.8" fill="#0A5F59"/>
+      <rect x="6"    y="16.6" width="20.1" height="14.8" fill="#14B8A6"/>
+      <rect x="26.9" y="16.6" width="20.1" height="14.8" fill="#0D9488"/>
+      <rect x="6"    y="32.2" width="20.1" height="14.8" fill="#0D867C"/>
+      <rect x="26.9" y="32.2" width="20.1" height="14.8" fill="#0B6F67"/>
     </g>
 
-    <rect x="1" y="21" width="18" height="18" rx="2" fill="#0E7C72" filter="url(#badgeShadowAdaptive)"/>
+    <!-- 层 2：徽标投影（裁切在底板内） -->
+    <g clip-path="url(#plateAdaptive)">
+      <rect x="1" y="22.3" width="18" height="18" rx="2" fill="#04211E" opacity="0.55" filter="url(#softShadowAdaptive)"/>
+    </g>
 
+    <!-- 层 3：徽标本体 -->
+    <rect x="1" y="21" width="18" height="18" rx="2" fill="#0E7C72"/>
+
+    <!-- 层 4：终端提示符 -->
     <g stroke="#FFFFFF" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" fill="none">
       <path d="M 4.5 25.5 L 9 30 L 4.5 34.5"/>
       <path d="M 11.5 34.5 H 15.5"/>

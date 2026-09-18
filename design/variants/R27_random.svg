@@ -1,0 +1,35 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 48 48">
+  <!-- SSHive 应用图标 · 随机 种子=27
+       48 网格 / 透明底 / 底板 2 列 x 3 行 / 徽标投影裁切在底板内 -->
+  <defs>
+    <clipPath id="plate"><rect x="6" y="1" width="41" height="46" rx="4"/></clipPath>
+    <filter id="softShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="1.15"/>
+    </filter>
+  </defs>
+
+  <!-- 层 1：底板（分隔缝用深色底） -->
+  <g clip-path="url(#plate)">
+    <rect x="6" y="1" width="41" height="46" fill="#0B6B62"/>
+    <rect x="6" y="1" width="20.1" height="14.8" fill="#10AB9C"/>
+    <rect x="26.9" y="1" width="20.1" height="14.8" fill="#0A5F59"/>
+    <rect x="6" y="16.6" width="20.1" height="14.8" fill="#14B8A6"/>
+    <rect x="26.9" y="16.6" width="20.1" height="14.8" fill="#0D9488"/>
+    <rect x="6" y="32.2" width="20.1" height="14.8" fill="#0D867C"/>
+    <rect x="26.9" y="32.2" width="20.1" height="14.8" fill="#0B6F67"/>
+  </g>
+
+  <!-- 层 2：徽标投影 —— 只落在底板上，且是模糊阴影而不是一块半透明矩形 -->
+  <g clip-path="url(#plate)">
+    <rect x="1" y="22.3" width="18" height="18" rx="2" fill="#04211E" opacity="0.55" filter="url(#softShadow)"/>
+  </g>
+
+  <!-- 层 3：徽标本体 -->
+  <rect x="1" y="21" width="18" height="18" rx="2" fill="#0E7C72"/>
+
+  <!-- 层 4：终端提示符 -->
+  <g stroke="#FFFFFF" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M 4.5 25.5 L 9 30 L 4.5 34.5"/>
+    <path d="M 11.5 34.5 H 15.5"/>
+  </g>
+</svg>
