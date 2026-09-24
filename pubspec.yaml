@@ -48,7 +48,9 @@ dependencies:
   # （注意：6.2.0 正式版尚未发布，镜像与官方源均止于 beta.3）
   flutter_inappwebview: 6.2.0-beta.3
   chinese_font_library: ^1.2.0
-  kterm: ^1.5.5
+  # 终端：改用 xterm.js 6.0.0（WebView 承载），离线资产在 assets/xterm/，
+  # 宿主页与 JS↔Dart 桥见 lib/services/xterm_page.dart。
+  # 旧的 kterm 终端已移除（不再依赖 third_party/kterm）。
 
 dev_dependencies:
   flutter_test:
@@ -64,11 +66,16 @@ dev_dependencies:
 # 本地补丁：
 # - flutter_secure_storage_windows：原版依赖 VS ATL 组件（atlstr.h），
 #   已替换为标准 Win32 API（utf8ToWide/wideToUtf8），避免构建机需安装 ATL。
-# - kterm：修复 Windows 桌面 TextInput 连接依赖一次性 keyboard token
-#   导致按键丢失的问题（custom_text_edit.dart）。
-# - flutter_inappwebview_windows：滚轮倍率热更新补丁（sendScroll 读动态成员
-#   scrollMultiplier_ + 静态通道 com.chenwnx.sshive/webview_scroll），
-#   实现改滚动幅度即时生效且不重建 WebView（重建会损坏共享 WebView2 环境）。
+# - flutter_inappwebview_windows：
+#   1) evaluateJavascript 的"页面主世界"分支改用 WebView2 原生 ExecuteScript，
+#      不再走 CDP Runtime.evaluate —— 后者在本机表现为"成功返回但脚本不生效"，
+#      导致 evaluateJavascript / callHandler 回值 / postWebMessage 三条
+#      Dart→JS 路径全部静默失效（终端黑屏的根因）。见
+#      windows/in_app_webview/in_app_webview.cpp 的 evaluateJavascript()。
+#   2) 滚轮倍率热更新补丁（sendScroll 读动态成员 scrollMultiplier_ +
+#      静态通道 com.chenwnx.sshive/webview_scroll）。注：windows/runner/main.cpp
+#      默认强制 WebView2 走 "Window to Visual" 宿主模式，滚轮由系统直投，
+#      这条倍率链路只在退回默认宿主（SSHIVE_WEBVIEW_HOSTING=default）时生效。
 # - re_editor：文本/代码查看器滚轮倍率补丁（CodeWheelScale.factor，
 #   applyPhysicsToUserOffset 放大用户滚动输入）。
 dependency_overrides:
@@ -76,8 +83,6 @@ dependency_overrides:
     path: third_party/flutter_secure_storage_windows
   flutter_inappwebview_windows:
     path: third_party/flutter_inappwebview_windows
-  kterm:
-    path: third_party/kterm
   re_editor:
     path: third_party/re_editor
 
@@ -92,9 +97,13 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  # Markdown 渲染引擎资源（markdown-it + KaTeX + highlight.js，离线内嵌）
+  # 离线内嵌资源：
+  # - assets/md_viewer/：Markdown 渲染引擎（markdown-it + KaTeX + highlight.js）
+  # - assets/xterm/：终端引擎（xterm.js 6.0.0 + addon-fit/webgl/unicode11/web-links）
+  #   由 tool/fetch_xterm_assets.mjs 拉取，来源与许可见 assets/xterm/README.md
   assets:
     - assets/md_viewer/
+    - assets/xterm/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

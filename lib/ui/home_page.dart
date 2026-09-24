@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../models/server_config.dart';
 import '../models/tunnel_config.dart';
@@ -46,8 +48,31 @@ class _HomePageState extends State<HomePage>
     FileBrowserController.instance.addListener(_onFileBrowserChanged);
   }
 
+  /// 终端 Tab 在 TabBar 中的位置（"服务器/隧道/网页/终端/文件/日志"）
+  static const int _terminalTabIndex = 3;
+  int _lastTabIndex = 0;
+
   void _onTabIndexChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    // 焦点归属：进入终端页 → 把键盘焦点交给终端；离开 → 主动放弃，
+    // 避免在别的页面继续吃键盘输入（用户明确要求的行为）。
+    final idx = _tabController.index;
+    if (idx != _lastTabIndex) {
+      final leaving = _lastTabIndex == _terminalTabIndex;
+      final entering = idx == _terminalTabIndex;
+      final session = TerminalManager.instance.active;
+      if (entering) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          TerminalManager.instance.active?.focusTerminal();
+        });
+      } else if (leaving) {
+        session?.blurTerminal();
+        // 把 Flutter 侧焦点收回来（同时会让 WebView2 失去 Win32 焦点）
+        FocusManager.instance.primaryFocus?.unfocus();
+      }
+      _lastTabIndex = idx;
+    }
+    setState(() {});
   }
 
   void _onWebSessionsChanged() {
@@ -71,32 +96,49 @@ class _HomePageState extends State<HomePage>
     }
   }
 
-  /// 网页滚动幅度设置（Windows）：滑杆自由调节，保存后网页标签即时重载生效。
+  /// 滚轮倍率设置（Windows）：**网页与终端各自独立**，1 = 标准手感。
+  ///
+  /// 两个倍率都走插件的每视图通道热更新，因此已打开的网页标签与终端立即生效，
+  /// 无需重开标签。
   Future<void> _adjustWebScroll(BuildContext context) async {
     final settings = WebScrollSettings.instance;
-    var current = settings.multiplier;
+    var web = settings.webMultiplier;
+    var terminal = settings.terminalMultiplier;
     final saved = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setState) => AlertDialog(
-          title: const Text('网页滚动幅度'),
+          title: const Text('滚轮倍率'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '一个滚轮格滚动的量：$current\n'
-                '（标准浏览器 ≈120；越小越细腻）',
+                '1 = 标准（一格一下）；越大越快，最大 '
+                '${WebScrollSettings.kMaxMultiplier} 倍。\n'
+                '网页与终端分开配置，两者互不影响。',
                 style: Theme.of(ctx).textTheme.bodySmall,
               ),
               const SizedBox(height: 8),
+              Text('网页：$web 倍', style: Theme.of(ctx).textTheme.labelLarge),
               Slider(
-                value: current.toDouble(),
+                value: web.toDouble(),
                 min: WebScrollSettings.kMinMultiplier.toDouble(),
                 max: WebScrollSettings.kMaxMultiplier.toDouble(),
-                divisions: 38,
-                label: '$current',
-                onChanged: (v) => setState(() => current = v.round()),
+                divisions: WebScrollSettings.kMaxMultiplier -
+                    WebScrollSettings.kMinMultiplier,
+                label: '$web',
+                onChanged: (v) => setState(() => web = v.round()),
+              ),
+              Text('终端：$terminal 倍', style: Theme.of(ctx).textTheme.labelLarge),
+              Slider(
+                value: terminal.toDouble(),
+                min: WebScrollSettings.kMinMultiplier.toDouble(),
+                max: WebScrollSettings.kMaxMultiplier.toDouble(),
+                divisions: WebScrollSettings.kMaxMultiplier -
+                    WebScrollSettings.kMinMultiplier,
+                label: '$terminal',
+                onChanged: (v) => setState(() => terminal = v.round()),
               ),
             ],
           ),
@@ -113,18 +155,21 @@ class _HomePageState extends State<HomePage>
         ),
       ),
     );
-    if (saved == true) {
-      await settings.setMultiplier(current);
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          const SnackBar(
-            content: Text('已生效（当前网页立即使用新滚动幅度）'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-    }
+    if (saved != true) return;
+    await settings.setWebMultiplier(web);
+    await settings.setTerminalMultiplier(terminal);
+    // 对已打开的视图立即生效（每视图通道）
+    await WebSessionManager.instance.applyScrollMultiplier(web);
+    await TerminalManager.instance.applyScrollMultiplier(terminal);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text('已生效：网页 $web 倍 / 终端 $terminal 倍'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
   }
 
   /// 网页渲染宽度设置（Android 桌面模式）：滑杆自由调节视口宽度，
@@ -275,11 +320,11 @@ class _HomePageState extends State<HomePage>
                   value: 'web_desktop_width',
                   child: Text('网页渲染宽度…'),
                 ),
-              // 网页滚动幅度仅 Windows WebView2 有效
+              // 滚轮倍率（网页 / 终端各自独立）仅 Windows WebView2 有效
               if (Platform.isWindows)
                 const PopupMenuItem(
                   value: 'web_scroll',
-                  child: Text('网页滚动幅度…'),
+                  child: Text('滚轮倍率（网页/终端）…'),
                 ),
               if (Platform.isAndroid) const PopupMenuDivider(),
               const PopupMenuItem(
@@ -754,50 +799,185 @@ class _TunnelCard extends StatelessWidget {
 // 日志 Tab
 // ---------------------------------------------------------------------------
 
-class _LogsTab extends StatelessWidget {
+class _LogsTab extends StatefulWidget {
   const _LogsTab();
 
-  String _formatTime(DateTime t) {
-    String two(int v) => v.toString().padLeft(2, '0');
-    return '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
+  @override
+  State<_LogsTab> createState() => _LogsTabState();
+}
+
+class _LogsTabState extends State<_LogsTab> {
+  LogLevel _minLevel = LogLevel.debug;
+  String? _tag;
+  bool _follow = true;
+
+  Future<void> _copyFiltered() async {
+    final text = LogBus.instance.exportText(minLevel: _minLevel, tag: _tag);
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text('已复制 ${text.length} 字符日志（含环境头）'),
+        duration: const Duration(seconds: 2),
+      ));
+  }
+
+  Future<void> _saveToFile() async {
+    final text = LogBus.instance.exportText(minLevel: _minLevel, tag: _tag);
+    try {
+      final dir = await getApplicationSupportDirectory();
+      final ts = DateTime.now()
+          .toIso8601String()
+          .replaceAll(':', '')
+          .replaceAll('.', '')
+          .substring(0, 15);
+      final file = File('${dir.path}${Platform.pathSeparator}sshive-log-$ts.txt');
+      await file.writeAsString(text);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text('已保存: ${file.path}'),
+          duration: const Duration(seconds: 4),
+        ));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text('保存失败: $e')));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return ListenableBuilder(
       listenable: LogBus.instance,
       builder: (context, _) {
-        final entries = LogBus.instance.entries;
-        if (entries.isEmpty) {
-          return const _EmptyHint(
-            icon: Icons.article_outlined,
-            text: '暂无日志',
-          );
-        }
-        // 保留最近 2000 条
-        final from = entries.length > 2000 ? entries.length - 2000 : 0;
+        final bus = LogBus.instance;
+        final all = bus.entries;
+        final tags = bus.tags;
+        final entries = all
+            .where((e) =>
+                e.level.index >= _minLevel.index &&
+                (_tag == null || e.tag == _tag))
+            .toList();
         final sb = StringBuffer();
-        for (var i = from; i < entries.length; i++) {
-          final e = entries[i];
-          sb
-            ..write(_formatTime(e.time))
-            ..write(' [${e.levelName}] ')
-            ..writeln('${e.tag} ${e.message}');
+        for (final e in entries) {
+          sb.writeln(e.format());
         }
-        return SelectionArea(
-          // 自由选择复制：移动端长按/双击弹出选择手柄，
-          // 桌面端鼠标拖选；日志自动追加（随 LogBus 刷新）
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(12),
-            child: Text(
-              sb.toString(),
-              style: const TextStyle(
-                fontSize: 12.5,
-                height: 1.5,
-                fontFamily: 'monospace',
+        return Column(
+          children: [
+            // 过滤 / 诊断 / 导出工具条
+            Container(
+              color: theme.colorScheme.surfaceContainerHighest,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 116,
+                    child: DropdownButton<LogLevel>(
+                      value: _minLevel,
+                      isDense: true,
+                      underline: const SizedBox.shrink(),
+                      style: theme.textTheme.bodySmall,
+                      items: const [
+                        DropdownMenuItem(
+                            value: LogLevel.trace, child: Text('全部级别')),
+                        DropdownMenuItem(
+                            value: LogLevel.debug, child: Text('DEBUG+')),
+                        DropdownMenuItem(
+                            value: LogLevel.info, child: Text('INFO+')),
+                        DropdownMenuItem(
+                            value: LogLevel.warn, child: Text('WARN+')),
+                        DropdownMenuItem(
+                            value: LogLevel.error, child: Text('仅 ERROR')),
+                      ],
+                      onChanged: (v) =>
+                          setState(() => _minLevel = v ?? LogLevel.debug),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 132,
+                    child: DropdownButton<String?>(
+                      value: _tag,
+                      isDense: true,
+                      underline: const SizedBox.shrink(),
+                      style: theme.textTheme.bodySmall,
+                      items: [
+                        const DropdownMenuItem<String?>(
+                            value: null, child: Text('全部标签')),
+                        for (final t in tags)
+                          DropdownMenuItem<String?>(
+                              value: t, child: Text(t, overflow: TextOverflow.ellipsis)),
+                      ],
+                      onChanged: (v) => setState(() => _tag = v),
+                    ),
+                  ),
+                  FilterChip(
+                    label: const Text('诊断模式', style: TextStyle(fontSize: 11)),
+                    visualDensity: VisualDensity.compact,
+                    selected: bus.verbose,
+                    onSelected: (v) => setState(() => bus.setVerbose(v)),
+                  ),
+                  IconButton(
+                    tooltip: '复制当前过滤结果（含环境信息）',
+                    visualDensity: VisualDensity.compact,
+                    iconSize: 18,
+                    icon: const Icon(Icons.copy_all_outlined),
+                    onPressed: _copyFiltered,
+                  ),
+                  IconButton(
+                    tooltip: '保存到文件',
+                    visualDensity: VisualDensity.compact,
+                    iconSize: 18,
+                    icon: const Icon(Icons.save_alt_outlined),
+                    onPressed: _saveToFile,
+                  ),
+                  IconButton(
+                    tooltip: _follow ? '跟随最新（点击锁定）' : '已锁定（点击跟随）',
+                    visualDensity: VisualDensity.compact,
+                    iconSize: 18,
+                    icon: Icon(_follow
+                        ? Icons.vertical_align_bottom
+                        : Icons.pause_circle_outline),
+                    onPressed: () => setState(() => _follow = !_follow),
+                  ),
+                  Text(
+                    '${entries.length}/${all.length}'
+                    '${bus.droppedTrace > 0 ? '  （另有 ${bus.droppedTrace} 条 TRACE 未记录）' : ''}',
+                    style: theme.textTheme.labelSmall,
+                  ),
+                ],
               ),
             ),
-          ),
+            Expanded(
+              child: entries.isEmpty
+                  ? const _EmptyHint(
+                      icon: Icons.article_outlined,
+                      text: '当前过滤条件下没有日志',
+                    )
+                  : SelectionArea(
+                      // 自由选择复制：移动端长按/双击弹出选择手柄，
+                      // 桌面端鼠标拖选；日志自动追加（随 LogBus 刷新）
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(12),
+                        child: Text(
+                          sb.toString(),
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            height: 1.5,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ),
+                    ),
+            ),
+          ],
         );
       },
     );

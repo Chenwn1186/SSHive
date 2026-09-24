@@ -3162,6 +3162,15 @@ class WindowsInAppWebViewController extends PlatformInAppWebViewController
     await channel?.invokeMethod('postWebMessage', args);
   }
 
+  /// ssh_agent patch: 每视图热更新滚轮倍率。
+  ///
+  /// 与插件顶层静态通道 `com.chenwnx.sshive/webview_scroll` 的
+  /// `setMultiplier`（作用于全部 WebView）不同，这个只影响当前视图——
+  /// 终端与网页因此可以各配一套速度并即时生效。
+  Future<void> setScrollMultiplier(int value) async {
+    await channel?.invokeMethod('setScrollMultiplier', {'value': value});
+  }
+
   @override
   Future<CallAsyncJavaScriptResult?> callAsyncJavaScript({
     required String functionBody,

@@ -1,4 +1,4 @@
-﻿#include <cstring>
+#include <cstring>
 #include <filesystem>
 #include <nlohmann/json.hpp>
 #include <limits>
@@ -2289,6 +2289,33 @@ namespace flutter_inappwebview_plugin
       return;
     }
 
+    // ssh_agent patch: 页面主世界改用 WebView2 原生 ExecuteScript，不再走 CDP
+    // Runtime.evaluate。原因（实测 2026-09-18）：CDP 调用会"成功返回"但脚本没有
+    // 生效，Dart 侧既没有异常也没有结果，于是 evaluateJavascript / callHandler 的
+    // Promise 回值 / postWebMessage 三条 Dart→JS 路径全部静默失效（终端因此黑屏）。
+    // ExecuteScript 是原生 API，直接在主世界执行，不依赖 DevTools 协议。
+    // 非 page 的 content world 仍走下面的 CDP 隔离世界路径（保持原行为）。
+    if (ContentWorld::isPage(contentWorld)) {
+      const auto hr = webView->ExecuteScript(utf8_to_wide(source).c_str(),
+        Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+          [completionHandler](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT
+          {
+            std::string result = "null";
+            if (succeededOrLog(errorCode) && resultObjectAsJson != nullptr) {
+              result = wide_to_utf8(resultObjectAsJson);
+            }
+            if (completionHandler) {
+              completionHandler(result);
+            }
+            return S_OK;
+          }).Get());
+      if (failedAndLog(hr) && completionHandler) {
+        // ExecuteScript 同步失败时回调不会被调用，这里补一次，避免 Dart 侧挂起
+        completionHandler("null");
+      }
+      return;
+    }
+
     userContentController->createContentWorld(contentWorld,
       [=](const int& contextId)
       {
@@ -2570,6 +2597,30 @@ namespace flutter_inappwebview_plugin
     int64_t messageType)
   {
     if (!webView) return;
+
+    // ssh_agent patch: 字符串消息改用 WebView2 原生 PostWebMessageAsJson 投递。
+    // 原实现是拼一段 JS 再用 evaluateJavascript 派发 message 事件；但实测 Dart 侧
+    // 发起的脚本执行看不到页面主世界的全局对象（window.__sshive 等），消息到不了
+    // 页面。原生 API 由 WebView2 直接投递到文档，完全不经过脚本执行。
+    // 数组缓冲（messageType == 1）仍走原来的 JS 路径。
+    if (messageType != 1) {
+      std::string escaped;
+      escaped.reserve(messageData.size() + 2);
+      escaped += '"';
+      for (char c : messageData) {
+        switch (c) {
+        case '\\': escaped += "\\\\"; break;
+        case '"': escaped += "\\\""; break;
+        case '\n': escaped += "\\n"; break;
+        case '\r': escaped += "\\r"; break;
+        case '\t': escaped += "\\t"; break;
+        default: escaped += c; break;
+        }
+      }
+      escaped += '"';
+      failedLog(webView->PostWebMessageAsJson(utf8_to_wide(escaped).c_str()));
+      return;
+    }
 
     std::string messageDataJs;
     if (messageType == 1) {
@@ -3806,17 +3857,56 @@ namespace flutter_inappwebview_plugin
       return;
     }
 
-    // ssh_agent patch: 读动态成员而非 settings（支持运行时热更新）
-    auto offset = static_cast<short>(delta * scrollMultiplier_);
+    // ssh_agent patch: 修正滚轮刻度（这是"滚轮幅度巨大"的根因）。
+    //
+    // 原实现 offset = (short)(delta * scrollMultiplier_)，其中 delta 是 Flutter 的
+    // **逻辑像素**增量（Windows 引擎约 100 物理 px = 一格），而 WebView2 的 WHEEL
+    // 事件 mouseData 单位是 WHEEL_DELTA(120) = 一格。两者单位不同，再乘上可调倍率，
+    // 实际变成"一格滚 10~60 格"，网页与 xterm.js 回看缓冲都被放大。
+    //
+    // 现在：逻辑像素 -> 物理像素(乘 DPR) -> 格数(除以每格像素) -> 乘 120 得到 mouseData，
+    // 并对单事件封顶 ±3 格（顺带消掉 static_cast<short> 溢出导致的反弹跳）。
+    // scrollMultiplier_ 语义随之变为"倍率"：1 = 标准（一格一下），0 会被视为 1。
+    //
+    // 每格像素不能硬编码：Flutter 引擎的换算是跟系统"每次滚动行数"联动的
+    //   scroll_offset_multiplier = 行数 * 100 / 3
+    // 系统默认 3 行 -> 100 物理 px/格；若用户设成 6 行（本机就是 6），引擎一格给
+    // 200 px，硬编码 100 就会算成 2 格 —— 网页滚动因此比原生浏览器多滚一倍
+    // （终端按行累积，观感上没那么明显，所以表现为"终端没问题、网页有问题"）。
+    // 这里读同一个系统设置，保证"一格进 -> 一格出"。
+    static double pxPerNotch = 0.0;
+    if (pxPerNotch <= 0.0) {
+      UINT lines = 3;
+      if (!::SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0) ||
+          lines == 0) {
+        lines = 3; // 读不到或"一次滚一屏"都按默认 3 行处理
+      }
+      if (lines > 100) {
+        lines = 100;
+      }
+      pxPerNotch = static_cast<double>(lines) * (100.0 / 3.0);
+    }
+    const double dpr = (scaleFactor_ > 0.0f) ? static_cast<double>(scaleFactor_) : 1.0;
+    double notches = (delta * dpr) / pxPerNotch;
+    if (scrollMultiplier_ > 0.0) {
+      notches *= scrollMultiplier_;
+    }
+    if (notches > 3.0) notches = 3.0;
+    if (notches < -3.0) notches = -3.0;
+    const int offset = static_cast<int>(notches * 120.0 + (notches >= 0 ? 0.5 : -0.5));
+    if (offset == 0) {
+      return;
+    }
+    const short mouseData = static_cast<short>(offset);
 
     if (horizontal) {
       webViewCompositionController->SendMouseInput(
         COREWEBVIEW2_MOUSE_EVENT_KIND_HORIZONTAL_WHEEL, virtualKeys_.state(),
-        offset, lastCursorPos_);
+        mouseData, lastCursorPos_);
     }
     else {
       webViewCompositionController->SendMouseInput(COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL,
-        virtualKeys_.state(), offset,
+        virtualKeys_.state(), mouseData,
         lastCursorPos_);
     }
   }
@@ -3926,6 +4016,20 @@ namespace flutter_inappwebview_plugin
 
           if (!string_equals(expectedBridgeSecret, bridgeSecret)) {
             debugLog("Bridge access attempt with wrong secret token, possibly from malicious code from origin: " + origin);
+            return S_OK;
+          }
+
+          // ssh_agent patch: 保留名 __focus —— 由页面主动把键盘焦点交回本 WebView。
+          //
+          // 背景：这个 WebView 走 composition 宿主，键盘焦点必须在 WebView2 的输入窗口
+          // 上；而插件里原本没有任何 MoveFocus 调用（点一下能用，是因为点击被转发给
+          // WebView2，由它自己抢焦点）。于是用户一旦点了 Flutter 侧按钮（焦点被 Flutter
+          // 的窗口拿走），页面就再也收不到键盘输入。这里给页面一个"把焦点要回来"的入口，
+          // 由收到该消息的这个 WebView 实例自己执行，因此不需要任何 id 分发。
+          if (handlerName == "__focus") {
+            if (webViewController) {
+              failedLog(webViewController->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC));
+            }
             return S_OK;
           }
 

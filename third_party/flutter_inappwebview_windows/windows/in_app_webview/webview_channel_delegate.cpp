@@ -321,6 +321,13 @@ namespace flutter_inappwebview_plugin
       webView->postWebMessage(messageData, targetOrigin, messageType);
       result->Success(true);
     }
+    else if (string_equals(methodName, "setScrollMultiplier")) {
+      // ssh_agent patch: 每视图热更新滚轮倍率（终端与网页各自独立配置，
+      // 与此前的"全量 setScrollMultiplierAll"静态通道区分开）
+      const auto v = get_fl_map_value<int64_t>(arguments, "value", 1);
+      webView->setScrollMultiplier(static_cast<double>(v));
+      result->Success(true);
+    }
     else if (string_equals(methodName, "takeScreenshot")) {
       auto result_ = std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>(std::move(result));
       auto screenshotConfigurationMap = get_optional_fl_map_value<flutter::EncodableMap>(arguments, "screenshotConfiguration");

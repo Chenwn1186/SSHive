@@ -3,6 +3,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import 'log_bus.dart';
 import 'secure_store.dart';
+import 'web_scroll_settings.dart';
 
 /// 一个网页会话（一个标签页）。
 ///
@@ -118,6 +119,14 @@ class WebSessionManager extends ChangeNotifier {
       (_activeIndex >= 0 && _activeIndex < _sessions.length)
           ? _sessions[_activeIndex]
           : null;
+
+  /// 把所有已打开网页标签的滚轮倍率热更新为新值（改设置后立即生效；
+  /// 终端另有独立倍率，互不影响）。
+  Future<void> applyScrollMultiplier(int value) async {
+    for (final s in _sessions) {
+      await applyScrollMultiplierTo(s.controller, value);
+    }
+  }
 
   /// 请求主页切换到指定 tab（HomePage 监听并消费）。
   void requestTab(int index) {

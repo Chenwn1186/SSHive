@@ -178,9 +178,9 @@ root.innerHTML = md.render(SRC);
             initialSettings: InAppWebViewSettings(
               javaScriptEnabled: true,
               transparentBackground: false,
-              // Windows 滚轮幅度用用户设置（null=平台默认值）
+              // Windows：Markdown 预览按"网页"倍率（与终端分开配置）
               scrollMultiplier: webScrollCalibrationEnabled
-                  ? WebScrollSettings.instance.multiplier
+                  ? WebScrollSettings.instance.webMultiplier
                   : null,
             ),
             onWebViewCreated: (controller) {

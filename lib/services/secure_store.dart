@@ -19,6 +19,8 @@ class SecureStore {
   static const _keepAliveKey = 'sshagent_keepalive';
   static const _fontPrefKey = 'sshagent_viewer_font';
   static const _webScrollMultiplierKey = 'sshagent_web_scroll_multiplier';
+  static const _terminalScrollMultiplierKey =
+      'sshagent_terminal_scroll_multiplier';
   static const _webDesktopModeKey = 'sshagent_web_desktop_mode';
   static const _webDesktopWidthKey = 'sshagent_web_desktop_width';
   static const _viewerScrollKey = 'sshagent_viewer_scroll_factor';
@@ -97,22 +99,35 @@ class SecureStore {
   }
 
   // ---------------------------------------------------------------------
-  // 网页滚动幅度（Windows WebView2，scrollMultiplier）
+  // 滚轮倍率（Windows WebView2，scrollMultiplier / setScrollMultiplier）
+  // 网页与终端各一套，互不影响
   // ---------------------------------------------------------------------
 
   Future<int?> loadWebScrollMultiplier() async {
-    try {
-      final raw = await _storage.read(key: _webScrollMultiplierKey);
-      if (raw == null || raw.isEmpty) return null;
-      return int.tryParse(raw);
-    } catch (e) {
-      LogBus.instance.error('Store', '读取网页滚动设置失败: $e');
-      return null;
-    }
+    return _loadInt(_webScrollMultiplierKey);
   }
 
   Future<void> saveWebScrollMultiplier(int v) async {
     await _storage.write(key: _webScrollMultiplierKey, value: '$v');
+  }
+
+  Future<int?> loadTerminalScrollMultiplier() async {
+    return _loadInt(_terminalScrollMultiplierKey);
+  }
+
+  Future<void> saveTerminalScrollMultiplier(int v) async {
+    await _storage.write(key: _terminalScrollMultiplierKey, value: '$v');
+  }
+
+  Future<int?> _loadInt(String key) async {
+    try {
+      final raw = await _storage.read(key: key);
+      if (raw == null || raw.isEmpty) return null;
+      return int.tryParse(raw);
+    } catch (e) {
+      LogBus.instance.error('Store', '读取设置失败($key): $e');
+      return null;
+    }
   }
 
   // ---------------------------------------------------------------------

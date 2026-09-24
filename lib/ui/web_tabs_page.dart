@@ -357,8 +357,8 @@ class _WebPageView extends StatelessWidget {
     // 注意：此处不要用 ValueKey 变化 / 监听去"重建" InAppWebView——
     // 在共享 gWebViewEnvironment 下重建会损坏 WebView2 环境，
     // 导致 http://127.0.0.1:端口 加载报 CONNECTION_ABORTED。
-    // 滚动幅度在创建时读取，改设置后新打开/重开的标签生效。
-    final multiplier = WebScrollSettings.instance.multiplier;
+    // 滚动倍率在创建时读取；已打开的标签由设置对话框通过每视图通道热更新。
+    final multiplier = WebScrollSettings.instance.webMultiplier;
     // 桌面版网页模式（仅 Android）：桌面 UA + 强制桌面视口，
     // 让手机上的网页按电脑布局渲染（设置变化对新标签生效）
     final desktop = Platform.isAndroid && WebDesktopMode.instance.enabled;
@@ -384,7 +384,7 @@ class _WebPageView extends StatelessWidget {
                 javaScriptEnabled: true,
                 domStorageEnabled: true,
                 supportZoom: true,
-                // 仅 Windows 校准滚轮增量，可调幅度（见 web_scroll_settings.dart）
+                // 仅 Windows：网页用**独立的网页倍率**（与终端分开配置）
                 scrollMultiplier:
                     webScrollCalibrationEnabled ? multiplier : null,
                 // 仅 Android 桌面模式：桌面 UA + 宽视口
