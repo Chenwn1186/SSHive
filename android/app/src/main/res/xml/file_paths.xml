@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  应用内更新的 APK 通过 FileProvider 交给系统安装器。
+  update_service.dart 把 APK 下载到 getTemporaryDirectory()（= 应用 cacheDir），
+  因此这里至少需要 cache-path；另外两条是防御性兜底（不同 ROM 上
+  getTemporaryDirectory 的落点可能是 files/ 或外部 cache）。
+-->
+<paths>
+    <cache-path name="apk_cache" path="." />
+    <external-cache-path name="apk_external_cache" path="." />
+    <files-path name="apk_files" path="." />
+</paths>

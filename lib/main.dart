@@ -13,6 +13,7 @@ import 'services/web_scroll_config.dart';
 import 'services/web_scroll_settings.dart';
 import 'services/web_desktop_mode.dart';
 import 'services/web_session_manager.dart';
+import 'services/window_metrics.dart';
 import 'ui/home_page.dart';
 
 Future<void> main() async {
@@ -86,13 +87,26 @@ class SshiveApp extends StatelessWidget {
       // 全局安全区适配：Android 15+ 强制 edge-to-edge，内容会延伸到
       // 系统导航栏/状态栏之下，这里统一为页面内容避开系统导航栏
       // （顶部状态栏由 AppBar 自行处理，因此只避让底部与左右）。
-      builder: (context, child) => SafeArea(
-        top: false,
-        bottom: true,
-        left: true,
-        right: true,
-        child: child ?? const SizedBox.shrink(),
-      ),
+      //
+      // 另外做两件事（见 window_metrics.dart）：
+      // 1) 记录窗口 size/padding/insets 的变化 —— 用于排查小米平板小窗下
+      //    "页面组件消失、只剩 FAB"这类极端窗口问题；
+      // 2) 把系统 Insets 夹到边长的 35%，避免 OEM 上报超过窗口的 padding
+      //    把内容（含 AppBar 与 body）压成 0 尺寸。
+      builder: (context, child) {
+        final mq = MediaQuery.of(context);
+        WindowMetrics.logIfChanged(mq, source: '根窗口');
+        return MediaQuery(
+          data: WindowMetrics.clampInsets(mq),
+          child: SafeArea(
+            top: false,
+            bottom: true,
+            left: true,
+            right: true,
+            child: child ?? const SizedBox.shrink(),
+          ),
+        );
+      },
       // chinese_font_library：全局中文字体优化
       // （中文回退链 + wght 可变字重，各字重原生渲染）
       theme: ThemeData(

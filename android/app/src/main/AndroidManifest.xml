@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <!-- Android 13+ 通知权限（前台服务通知） -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- 应用内更新：把下载好的 APK 交给系统安装器（Android 8+ 需要声明） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
 
     <application
         android:label="SSHive"
@@ -37,6 +39,18 @@
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
             android:foregroundServiceType="dataSync"
             android:exported="false" />
+
+        <!-- 应用内更新：把 cacheDir 里的 APK 以 content:// 交给系统安装器
+             （authority 必须与 MainActivity.kt 里的一致；路径见 res/xml/file_paths.xml） -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <meta-data
             android:name="flutterEmbedding"

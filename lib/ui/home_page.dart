@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/server_config.dart';
 import '../models/tunnel_config.dart';
@@ -12,9 +14,11 @@ import '../services/log_bus.dart';
 import '../services/ssh_session.dart';
 import '../services/terminal_manager.dart';
 import '../services/tunnel_runtime.dart';
+import '../services/update_service.dart';
 import '../services/web_scroll_settings.dart';
 import '../services/web_desktop_mode.dart';
 import '../services/web_session_manager.dart';
+import '../services/window_metrics.dart';
 import 'import_ssh_page.dart';
 import 'remote_file_tabs_page.dart';
 import 'server_edit_page.dart';
@@ -51,6 +55,9 @@ class _HomePageState extends State<HomePage>
   /// 终端 Tab 在 TabBar 中的位置（"服务器/隧道/网页/终端/文件/日志"）
   static const int _terminalTabIndex = 3;
   int _lastTabIndex = 0;
+
+  /// "检查更新"是否正在进行：菜单项据此把图标换成转圈圈
+  final ValueNotifier<bool> _checkingUpdate = ValueNotifier(false);
 
   void _onTabIndexChanged() {
     if (!mounted) return;
@@ -172,6 +179,234 @@ class _HomePageState extends State<HomePage>
       );
   }
 
+  // ---------------------------------------------------------------------
+  // 检查更新（GitHub Releases）
+  // ---------------------------------------------------------------------
+
+  /// 检查更新。[menuContext] 传入菜单项 context 时，检查完会先关掉菜单。
+  Future<void> _checkUpdate({BuildContext? menuContext}) async {
+    if (_checkingUpdate.value) return;
+    _checkingUpdate.value = true;
+    UpdateInfo info;
+    try {
+      info = await UpdateService.check();
+    } finally {
+      _checkingUpdate.value = false;
+    }
+    if (!mounted) return;
+
+    // 关掉仍在显示的菜单；若用户已把菜单点掉，则不要误关页面路由
+    if (menuContext != null && menuContext.mounted) {
+      final route = ModalRoute.of(menuContext);
+      if (route != null && route.isActive && route.isCurrent) {
+        Navigator.of(menuContext).pop();
+      }
+    }
+    if (!mounted) return;
+    await _showUpdateResult(info);
+  }
+
+  Future<void> _showUpdateResult(UpdateInfo info) async {
+    switch (info.status) {
+      case UpdateStatus.failed:
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('检查更新失败'),
+            content: Text('${info.error ?? '未知错误'}\n\n请检查网络后重试。'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('关闭'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _checkUpdate();
+                },
+                child: const Text('重试'),
+              ),
+            ],
+          ),
+        );
+        return;
+
+      case UpdateStatus.upToDate:
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('已是最新版本'),
+            content: Text(
+              '当前版本 v${info.currentVersion}'
+              '${info.error != null ? '\n\n（${info.error}）' : ''}',
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('知道了'),
+              ),
+            ],
+          ),
+        );
+        return;
+
+      case UpdateStatus.available:
+        final size = info.apkBytes != null
+            ? '${(info.apkBytes! / 1048576).toStringAsFixed(1)} MB'
+            : null;
+        final canInstall = Platform.isAndroid && info.hasApk;
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text('发现新版本 v${info.latestVersion}'),
+            content: SizedBox(
+              width: 420,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '当前版本 v${info.currentVersion}'
+                    '${size != null ? '　安装包 $size' : ''}',
+                    style: Theme.of(ctx).textTheme.bodySmall,
+                  ),
+                  if ((info.notes ?? '').isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    const Text('更新说明',
+                        style: TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 6),
+                    Flexible(
+                      child: SingleChildScrollView(child: Text(info.notes!)),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('稍后'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  if (canInstall) {
+                    _downloadAndInstall(info);
+                  } else {
+                    final url = info.releaseUrl;
+                    if (url != null) {
+                      launchUrl(Uri.parse(url),
+                          mode: LaunchMode.externalApplication);
+                    }
+                  }
+                },
+                child: Text(canInstall ? '下载并安装' : '打开发布页'),
+              ),
+            ],
+          ),
+        );
+        return;
+    }
+  }
+
+  /// 下载 APK 并拉起系统安装器（Android）。带进度条与取消。
+  Future<void> _downloadAndInstall(UpdateInfo info) async {
+    var cancelled = false;
+    final progress = ValueNotifier<double?>(null);
+    try {
+      // 进度对话框（不可点外部关闭；下载完成/失败/取消时由代码关闭）
+      unawaited(showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text('正在下载更新'),
+          content: ValueListenableBuilder<double?>(
+            valueListenable: progress,
+            builder: (c, p, _) => Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                LinearProgressIndicator(value: p),
+                const SizedBox(height: 10),
+                Text(p == null
+                    ? '正在连接 GitHub…'
+                    : '已完成 ${(p * 100).toStringAsFixed(0)}%'),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                cancelled = true;
+                Navigator.pop(ctx);
+              },
+              child: const Text('取消'),
+            ),
+          ],
+        ),
+      ));
+
+      final String path;
+      try {
+        path = await UpdateService.downloadApk(
+          info,
+          onProgress: (received, total) => progress.value =
+              (total != null && total > 0) ? received / total : null,
+          isCancelled: () => cancelled,
+        );
+      } catch (e) {
+        if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
+          Navigator.of(context, rootNavigator: true).pop();
+        }
+        if (!mounted || isDownloadCancelled(e)) return;
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('下载失败'),
+            content: Text('$e'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('关闭'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+
+      // 下载完成 → 关闭进度框 → 跳转安装
+      if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      if (!mounted) return;
+      try {
+        await UpdateService.installApk(path);
+      } catch (e) {
+        if (!mounted) return;
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('无法启动安装'),
+            content: Text(
+              '$e\n\n'
+              '若系统提示未授权，请在「设置 → 应用 → SSHive → 安装未知应用」'
+              '里允许后再试；APK 已下载到应用缓存目录。',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('知道了'),
+              ),
+            ],
+          ),
+        );
+      }
+    } finally {
+      progress.dispose();
+    }
+  }
+
   /// 网页渲染宽度设置（Android 桌面模式）：滑杆自由调节视口宽度，
   /// 保存后新打开/重开的网页标签按新宽度渲染。
   Future<void> _adjustWebViewportWidth(BuildContext context) async {
@@ -235,6 +470,7 @@ class _HomePageState extends State<HomePage>
     TerminalManager.instance.removeListener(_onTerminalSessionsChanged);
     FileBrowserController.instance.removeListener(_onFileBrowserChanged);
     _tabController.dispose();
+    _checkingUpdate.dispose();
     super.dispose();
   }
 
@@ -327,6 +563,39 @@ class _HomePageState extends State<HomePage>
                   child: Text('滚轮倍率（网页/终端）…'),
                 ),
               if (Platform.isAndroid) const PopupMenuDivider(),
+              // 「检查更新」：点击后**不关闭菜单**，菜单项内联显示转圈圈，
+              // 检查结束再关掉菜单并弹结果（见 _checkUpdate）
+              PopupMenuItem<String>(
+                value: null,
+                padding: EdgeInsets.zero,
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: _checkingUpdate,
+                  builder: (itemCtx, busy, _) => InkWell(
+                    // 内层 InkWell 会在手势竞技场中胜出，从而不触发外层
+                    // PopupMenuItem 的关闭逻辑 —— 菜单得以留在屏幕上显示进度。
+                    // 万一外层仍然胜出（菜单关闭），检查照常进行、结果照样弹窗。
+                    onTap: busy ? null : () => _checkUpdate(menuContext: itemCtx),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: busy
+                                ? const CircularProgressIndicator(strokeWidth: 2)
+                                : const Icon(Icons.system_update_alt, size: 18),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(busy ? '正在检查更新…' : '检查更新'),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const PopupMenuDivider(),
               const PopupMenuItem(
                 value: 'clear_log',
                 child: Text('清空日志'),
@@ -337,16 +606,28 @@ class _HomePageState extends State<HomePage>
       ),
       // IndexedStack 保活：所有 Tab（含其中的 WebView/终端页面）常驻内存，
       // 切换不销毁，只有退出应用或用户手动销毁才结束页面
-      body: IndexedStack(
-        index: _tabController.index,
-        children: const [
-          _ServersTab(),
-          _TunnelsTab(),
-          WebTabsTab(),
-          TerminalTabsTab(),
-          RemoteFileTabsTab(),
-          _LogsTab(),
-        ],
+      //
+      // LayoutBuilder 只做一件事：可用空间被压得过小（小窗/分屏/OEM 上报异常
+      // Insets）时打一条 WARN，把窗口数值一并写进日志，便于定位
+      // "页面组件消失、只剩 FAB"这类问题。
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          WindowMetrics.logDegenerate(
+            constraints: constraints,
+            mq: MediaQuery.of(context),
+          );
+          return IndexedStack(
+            index: _tabController.index,
+            children: const [
+              _ServersTab(),
+              _TunnelsTab(),
+              WebTabsTab(),
+              TerminalTabsTab(),
+              RemoteFileTabsTab(),
+              _LogsTab(),
+            ],
+          );
+        },
       ),
       floatingActionButton: AnimatedBuilder(
         // 同时监听 tab 切换、网页会话和终端会话（有会话时隐藏 FAB 避免遮挡）
