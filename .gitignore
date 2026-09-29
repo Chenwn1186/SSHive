@@ -31,6 +31,8 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+# Windows release 构建产物（曾误提交过一次：data/app.so + data/flutter_assets/*）
+/data/
 /coverage/
 
 # Symbolication related
