@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -78,6 +79,84 @@ void main() {
       expect(find.text('测试更新说明'), findsOneWidget);
       // 桌面/测试环境不是 Android，因此入口是"打开发布页"
       expect(find.text('打开发布页'), findsOneWidget);
+    });
+  });
+
+  group('降级路径（绕过 api.github.com）', () {
+    test('从 releases 页面地址取 tag', () {
+      expect(
+        UpdateService.parseTagFromUrl(
+            'https://github.com/Chenwn1186/SSHive/releases/tag/v1.0.3'),
+        'v1.0.3',
+      );
+      expect(
+        UpdateService.parseTagFromUrl('https://github.com/x/y/releases/tag/1.2.3?a=1'),
+        '1.2.3',
+      );
+      expect(UpdateService.parseTagFromUrl('https://github.com/x/y/releases'),
+          isNull);
+      expect(UpdateService.parseTagFromUrl(null), isNull);
+    });
+
+    test('从 expanded_assets 片段取 APK 直链', () {
+      const html = '<a href="/Chenwn1186/SSHive/releases/download/v1.0.3/'
+          'SSHive-1.0.3-android-universal.apk">asset</a>';
+      expect(
+        UpdateService.parseApkUrlFromAssetsHtml(html),
+        'https://github.com/Chenwn1186/SSHive/releases/download/v1.0.3/'
+        'SSHive-1.0.3-android-universal.apk',
+      );
+      expect(UpdateService.parseApkUrlFromAssetsHtml('<a href="https://x/y.apk">'),
+          'https://x/y.apk');
+      expect(UpdateService.parseApkUrlFromAssetsHtml('没有 apk'), isNull);
+    });
+
+    test('API 不可达时自动降级到 github.com 并拿到新版本', () async {
+      UpdateService.debugHttpGetOverride =
+          (String url, {bool noRedirect = false}) async {
+        if (url.contains('api.github.com')) {
+          throw const SocketException('blocked in CN');
+        }
+        if (url.endsWith('/releases/latest')) {
+          return (
+            body: '',
+            location:
+                'https://github.com/Chenwn1186/SSHive/releases/tag/v9.9.9',
+            status: 302,
+          );
+        }
+        if (url.contains('expanded_assets')) {
+          return (
+            body: '<a href="/Chenwn1186/SSHive/releases/download/v9.9.9/'
+                'SSHive-9.9.9-android-universal.apk">a</a>',
+            location: null,
+            status: 200,
+          );
+        }
+        return (body: '', location: null, status: 404);
+      };
+      addTearDown(() => UpdateService.debugHttpGetOverride = null);
+
+      final info = await UpdateService.check();
+      expect(info.status, UpdateStatus.available);
+      expect(info.latestVersion, '9.9.9');
+      expect(info.viaWebFallback, isTrue, reason: '应走降级路径');
+      expect(info.hasApk, isTrue);
+      expect(info.releaseUrl, contains('/releases/tag/v9.9.9'));
+    });
+
+    test('两条路径都失败时返回失败并带上原因', () async {
+      UpdateService.debugHttpGetOverride =
+          (String url, {bool noRedirect = false}) async {
+        throw const SocketException('offline');
+      };
+      addTearDown(() => UpdateService.debugHttpGetOverride = null);
+
+      final info = await UpdateService.check();
+      expect(info.status, UpdateStatus.failed);
+      expect(info.error, isNotNull);
+      expect(info.error, contains('API'));
+      expect(info.error, contains('网页'));
     });
   });
 }
