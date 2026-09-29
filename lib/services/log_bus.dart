@@ -82,7 +82,16 @@ class LogBus extends ChangeNotifier {
   }
 
   /// 合并刷新：120ms 内的多条日志只触发一次 UI 重建
+  ///
+  /// 注意：**没有监听者时不排定时器**（例如测试环境、日志页尚未构建）。
+  /// 否则会留下一个待触发的 Timer —— widget 测试会在测试体结束时以
+  /// `!timersPending` 失败；生产环境里也是无意义的定时器。
+  /// 之后有监听者接入时，UI 会在 build 里直接读 [entries]，不会丢日志。
   void _notifySoon() {
+    if (!hasListeners) {
+      _dirty = false;
+      return;
+    }
     _dirty = true;
     _notifyTimer ??= Timer(const Duration(milliseconds: 120), () {
       _notifyTimer = null;

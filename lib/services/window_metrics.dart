@@ -73,16 +73,40 @@ class WindowMetrics {
 
   /// 夹住系统 Insets：小窗/多窗口下 OEM 可能上报远超窗口的 padding，
   /// 直接交给 SafeArea 会把内容压成 0。这里限制到对应边长的 35%。
-  static MediaQueryData clampInsets(MediaQueryData mq, {double ratio = 0.35}) {
+  /// 夹住系统 Insets。
+  ///
+  /// 两道限制同时生效（取更小者）：
+  /// 1. **绝对上限**（逻辑像素/≈dp）：top 48 / bottom 96 / left·right 48。
+  ///    正常全屏下状态栏、手势条、刘海都在这个量级以内；
+  /// 2. **比例上限**：[ratio] × 对应边长（默认 35%），防止窗口极小时被压成 0。
+  ///
+  /// 为什么需要绝对上限：小窗里 OEM 会把**全屏**的状态栏/小窗把手也算进 padding，
+  /// 而 `AppBar` 会把 `padding.top` 垫在工具栏之上 —— 只按比例夹（35%）在矮窗口里
+  /// 仍可能留下两三百像素的"垫高"，表现为"上半黑、下半才是页面"。
+  static MediaQueryData clampInsets(
+    MediaQueryData mq, {
+    double ratio = 0.35,
+    double maxTop = 48,
+    double maxBottom = 96,
+    double maxSide = 48,
+  }) {
     EdgeInsets clamp(EdgeInsets e) => EdgeInsets.only(
-          left: math.min(e.left, mq.size.width * ratio),
-          right: math.min(e.right, mq.size.width * ratio),
-          bottom: math.min(e.bottom, mq.size.height * ratio),
-          top: math.min(e.top, mq.size.height * ratio),
+          left: math.min(e.left, math.min(maxSide, mq.size.width * ratio)),
+          right: math.min(e.right, math.min(maxSide, mq.size.width * ratio)),
+          bottom: math.min(
+              e.bottom, math.min(maxBottom, mq.size.height * ratio)),
+          top: math.min(e.top, math.min(maxTop, mq.size.height * ratio)),
         );
-    return mq.copyWith(
-      padding: clamp(mq.padding),
-      viewPadding: clamp(mq.viewPadding),
-    );
+    final padding = clamp(mq.padding);
+    final viewPadding = clamp(mq.viewPadding);
+    // 只在真的夹掉东西时记一条（这就是"上半黑"的直接证据）
+    if (padding != mq.padding || viewPadding != mq.viewPadding) {
+      LogBus.instance.info(
+        'Window',
+        'Insets 被夹取：padding ${_insets(mq.padding)} → ${_insets(padding)}；'
+        'viewPadding ${_insets(mq.viewPadding)} → ${_insets(viewPadding)}',
+      );
+    }
+    return mq.copyWith(padding: padding, viewPadding: viewPadding);
   }
 }

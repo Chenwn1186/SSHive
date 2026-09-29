@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sshive/services/log_bus.dart';
 import 'package:sshive/services/window_metrics.dart';
 import 'package:sshive/ui/home_page.dart';
 
@@ -10,6 +11,10 @@ import 'package:sshive/ui/home_page.dart';
 /// 而未裁剪的 FAB 仍会绘制 —— 表现就是"只剩右下角 FAB"。
 /// 实测：未夹取时 HomePage 的 body 高度 = 0；夹取后 = 147（400x300 窗口）。
 void main() {
+  // 这些用例会触发 LogBus 写日志；它的合并刷新有一个 120ms 定时器，
+  // 不收尾清掉的话测试结束会因 !timersPending 失败。
+  tearDown(LogBus.instance.clear);
+
   void useWindow(WidgetTester tester,
       {required Size size, required double bottomPadding}) {
     tester.view.devicePixelRatio = 1.0;
@@ -94,5 +99,52 @@ void main() {
     expect(clamped.padding.left, lessThanOrEqualTo(400 * 0.35));
     // 未越界的边保持原值
     expect(clamped.padding.right, 4);
+  });
+
+  test('clampInsets：绝对上限（小窗里的大 padding.top 必须被夹掉）', () {
+    const mq = MediaQueryData(
+      size: Size(500, 700),
+      padding: EdgeInsets.only(top: 640, bottom: 300, left: 200, right: 8),
+      viewPadding: EdgeInsets.only(top: 640, bottom: 300, left: 200, right: 8),
+    );
+    final clamped = WindowMetrics.clampInsets(mq);
+
+    expect(clamped.padding.top, lessThanOrEqualTo(48),
+        reason: 'top 会被 AppBar 垫在工具栏之上，必须夹到状态栏量级');
+    expect(clamped.padding.bottom, lessThanOrEqualTo(96));
+    expect(clamped.padding.left, lessThanOrEqualTo(48));
+    expect(clamped.padding.right, 8, reason: '未越界保持原值');
+  });
+
+  testWidgets('小窗：超大 padding.top 不再把顶栏垫到窗口下半部分',
+      (WidgetTester tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(500, 700);
+    // MIUI 小窗里把"全屏状态栏/小窗把手"也算进 top padding 的情形
+    tester.view.padding = const FakeViewPadding(top: 640);
+    addTearDown(() {
+      tester.view.resetPadding();
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) {
+          final mq = MediaQuery.of(context);
+          return MediaQuery(
+            data: WindowMetrics.clampInsets(mq),
+            child: child ?? const SizedBox.shrink(),
+          );
+        },
+        home: const HomePage(),
+      ),
+    );
+    await tester.pump();
+
+    final appBarTop = tester.getTopLeft(find.byType(AppBar)).dy;
+    debugPrint('顶栏 y = $appBarTop（未夹取时会是 640）');
+    expect(appBarTop, lessThan(60),
+        reason: '顶栏应贴在窗口顶部；被 padding.top 垫下去就会露出上方的空白/黑区');
   });
 }

@@ -76,7 +76,7 @@ class UpdateService {
 
   /// 非 Android 平台（Windows）无法从包管理器取版本，用这个常量兜底。
   /// **需与 pubspec.yaml 的 version 保持一致。**
-  static const String fallbackVersion = '1.0.1';
+  static const String fallbackVersion = '1.0.2';
 
   /// 测试注入点：绕过网络返回固定结果
   @visibleForTesting
