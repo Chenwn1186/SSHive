@@ -48,4 +48,21 @@ void main() {
       expect(DshDiscovery.buildLocalUrl(raw, 8080), 'http://127.0.0.1:8080/');
     });
   });
+
+  group('DshDiscovery.isLoopbackHost', () {
+    test('回环地址判为 true', () {
+      expect(DshDiscovery.isLoopbackHost('127.0.0.1'), isTrue);
+      expect(DshDiscovery.isLoopbackHost('127.0.0.1 '), isTrue);
+      expect(DshDiscovery.isLoopbackHost('LOCALHOST'), isTrue);
+      expect(DshDiscovery.isLoopbackHost('::1'), isTrue);
+      expect(DshDiscovery.isLoopbackHost('[::1]'), isTrue);
+    });
+
+    test('服务器内网 IP 判为 false（隧道指过去必然连不上）', () {
+      expect(DshDiscovery.isLoopbackHost('172.18.168.30'), isFalse);
+      expect(DshDiscovery.isLoopbackHost('10.0.0.5'), isFalse);
+      expect(DshDiscovery.isLoopbackHost('0.0.0.0'), isFalse);
+      expect(DshDiscovery.isLoopbackHost(''), isFalse);
+    });
+  });
 }

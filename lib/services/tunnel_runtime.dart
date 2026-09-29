@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -83,18 +82,56 @@ class TunnelRuntime extends ChangeNotifier {
         config.remoteHost,
         config.remotePort,
       );
-      // 双向管道：本地 socket <-> SSH 转发通道
-      // （SSHForwardChannel 的 stream 是 Stream<Uint8List>，
-      //   sink 是 StreamSink<List<int>>，需要桥接类型）
-      final bridge = StreamController<Uint8List>();
-      client.pipe(bridge.sink);
-      bridge.stream.listen(
-        (data) => forward.sink.add(data),
-        onDone: () => forward.close(),
-        onError: (Object e) => forward.destroy(),
+
+      // 任一端出错或结束都要收尾另一端：漏掉任何一边，对端都会一直
+      // 干等下去，网页表现就是永远停在加载中。
+      void closeAll() {
+        try {
+          client.destroy();
+        } catch (_) {}
+        try {
+          forward.destroy();
+        } catch (_) {}
+      }
+
+      // 本地 -> 远程（Socket 给出的 Uint8List 本身就是 List<int>，
+      // 不再需要中间的 StreamController 桥接）
+      client.listen(
+        (data) {
+          try {
+            forward.sink.add(data);
+          } catch (_) {
+            closeAll();
+          }
+        },
+        onDone: () {
+          try {
+            forward.close();
+          } catch (_) {}
+        },
+        onError: (Object _) => closeAll(),
+        cancelOnError: true,
       );
-      forward.stream.cast<List<int>>().pipe(client);
-      // 任一端关闭则清理另一端
+
+      // 远程 -> 本地
+      forward.stream.listen(
+        (data) {
+          try {
+            client.add(data);
+          } catch (_) {
+            closeAll();
+          }
+        },
+        onDone: () {
+          try {
+            client.close();
+          } catch (_) {}
+        },
+        onError: (Object _) => closeAll(),
+        cancelOnError: true,
+      );
+
+      // 任一端被底层关闭时，把另一端也带走
       client.done.then((_) => forward.close()).catchError((_) {});
       forward.done.then((_) => client.destroy()).catchError((_) {});
     } catch (e) {

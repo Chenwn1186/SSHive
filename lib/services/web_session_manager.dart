@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
+import 'app_state.dart';
+import 'dsh_discovery.dart';
 import 'log_bus.dart';
 import 'secure_store.dart';
 import 'web_scroll_settings.dart';
@@ -50,11 +52,54 @@ class WebSession {
     final c = controller;
     if (c == null) return;
     try {
-      await c.loadUrl(urlRequest: URLRequest(url: WebUri(url.toString())));
+      final target = await _resolveUrl();
+      await c.loadUrl(urlRequest: URLRequest(url: WebUri(target.toString())));
     } catch (e) {
       error = '加载失败: $e';
       loading = false;
       onChanged();
+    }
+  }
+
+  /// 打开/刷新前把 dsh 的 token 换成服务器日志里的最新值。
+  ///
+  /// dsh-web 每次重启都会作废之前签发的 token 与 Cookie，而标签地址是
+  /// 持久化保存的（restore 原样打开）；不刷新就会一直拿到 401，
+  /// 页面永远停在加载中。隧道若因 SSH 断开停了，这里也会顺带拉起来。
+  Future<Uri> _resolveUrl() async {
+    final tid = tunnelId;
+    if (tid == null || !url.queryParameters.containsKey('token')) return url;
+    try {
+      final app = AppState.instance;
+      String? serverId;
+      for (final t in app.tunnels) {
+        if (t.id == tid) {
+          serverId = t.serverId;
+          break;
+        }
+      }
+      if (serverId == null) return url;
+      var serverName = serverId;
+      for (final s in app.servers) {
+        if (s.id == serverId) {
+          serverName = s.name.isEmpty ? s.host : s.name;
+          break;
+        }
+      }
+      final ep = await DshDiscovery.fetch(serverId, serverName)
+          .timeout(const Duration(seconds: 8));
+      if (ep == null) return url;
+      final fresh = Uri.tryParse(await DshDiscovery.ensureLocalUrl(ep));
+      if (fresh == null) return url;
+      // 只允许换 token，路径不同就不跳（避免把标签带到别的页面）
+      if (fresh.path != (url.path.isEmpty ? '/' : url.path)) return url;
+      if (fresh.toString() != url.toString()) {
+        LogBus.instance.debug('Web', 'dsh token 已刷新 → $fresh');
+      }
+      return fresh;
+    } catch (e) {
+      LogBus.instance.debug('Web', '刷新 dsh token 失败: $e');
+      return url;
     }
   }
 
@@ -83,11 +128,22 @@ class WebSession {
     onChanged();
   }
 
-  /// 刷新当前页。
+  /// 刷新当前页（dsh 标签会先换新 token，再按新地址加载）。
   Future<void> reload() async {
+    final c = controller;
+    if (c == null) return;
     try {
-      await controller?.reload();
-    } catch (_) {}
+      final target = await _resolveUrl();
+      if (target.toString() != url.toString()) {
+        await c.loadUrl(urlRequest: URLRequest(url: WebUri(target.toString())));
+      } else {
+        await c.reload();
+      }
+    } catch (_) {
+      try {
+        await c.reload();
+      } catch (_) {}
+    }
   }
 
   /// 获取当前实际 URL。

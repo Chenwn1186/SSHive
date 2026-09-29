@@ -399,6 +399,7 @@ class _WebPageView extends StatelessWidget {
           },
           onLoadStart: (controller, url) {
             LogBus.instance.debug('Web', '开始加载: $url');
+            session.onPageStarted();
           },
           onTitleChanged: (controller, title) {
             if (title != null && title.isNotEmpty) {
@@ -431,8 +432,11 @@ class _WebPageView extends StatelessWidget {
             session.onPageFinished();
           },
           onReceivedError: (controller, request, error) {
+            // isForMainFrame 为 null 表示"未知"（部分引擎/错误类型不给值），
+            // 当成主框架错误处理；否则加载失败永远不会上报，
+            // loading 也永远停在 true——页面看起来就是一直转圈。
             if (error.type != WebResourceErrorType.CANCELLED &&
-                request.isForMainFrame == true) {
+                request.isForMainFrame != false) {
               session.onLoadError(error.description);
               LogBus.instance.error('Web',
                   '加载失败: ${request.url} | ${error.type} | ${error.description}');
@@ -572,35 +576,37 @@ class _NewTabDialogState extends State<_NewTabDialog> {
     });
   }
 
-  /// 打开候选地址：隧道就绪直接打开，否则询问后自动建隧道。
+  /// 打开候选地址：需要新建隧道时先询问，已有隧道则直接确保其在跑。
+  ///
+  /// 无论哪条路径都必须走 [DshDiscovery.ensureLocalUrl]——它会把
+  /// 因 SSH 断开而停掉的隧道重新拉起来，并在隧道没真正监听时抛错，
+  /// 否则打开的就是一个打不开的死地址（页面停在加载中）。
   Future<void> _openEndpoint(DshEndpoint ep) async {
-    if (ep.tunnelReady) {
-      Navigator.pop(context, ep.localUrl);
-      return;
-    }
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('需要端口转发'),
-        content: Text(
-          '${ep.serverName} 上的 dsh-web 监听端口 ${ep.port}，'
-          '当前没有可用的本地隧道。\n\n'
-          '是否自动创建一条隧道并打开？\n'
-          '（本机空闲端口 → 127.0.0.1:${ep.port}）',
+    if (!ep.tunnelReady) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('需要端口转发'),
+          content: Text(
+            '${ep.serverName} 上的 dsh-web 监听端口 ${ep.port}，'
+            '当前没有可用的本地隧道。\n\n'
+            '是否自动创建一条隧道并打开？\n'
+            '（本机空闲端口 → 127.0.0.1:${ep.port}）',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('创建并打开'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('创建并打开'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
+      );
+      if (ok != true || !mounted) return;
+    }
     setState(() {
       _fetching = true;
       _hint = '正在建立隧道…';
