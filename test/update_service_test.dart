@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -106,8 +107,15 @@ void main() {
         'https://github.com/Chenwn1186/SSHive/releases/download/v1.0.3/'
         'SSHive-1.0.3-android-universal.apk',
       );
+      // 绝对地址的资产链接也接受；但非 /releases/download/ 的 href 会被忽略
+      // （片段里还有发布页/校验和等无关链接，不能误抓）
+      expect(
+        UpdateService.parseApkUrlFromAssetsHtml(
+            '<a href="https://github.com/o/r/releases/download/v1/a.apk">'),
+        'https://github.com/o/r/releases/download/v1/a.apk',
+      );
       expect(UpdateService.parseApkUrlFromAssetsHtml('<a href="https://x/y.apk">'),
-          'https://x/y.apk');
+          isNull);
       expect(UpdateService.parseApkUrlFromAssetsHtml('没有 apk'), isNull);
     });
 
@@ -157,6 +165,98 @@ void main() {
       expect(info.error, isNotNull);
       expect(info.error, contains('API'));
       expect(info.error, contains('网页'));
+    });
+  });
+
+  group('Windows 更新', () {
+    test('API 路径同时解析 APK 与 Windows 绿色包', () async {
+      UpdateService.debugHttpGetOverride =
+          (String url, {bool noRedirect = false}) async => (
+                body: jsonEncode({
+                  'tag_name': 'v9.9.9',
+                  'body': '发行说明',
+                  'html_url': 'https://github.com/Chenwn1186/SSHive/releases/tag/v9.9.9',
+                  'assets': [
+                    {
+                      'name': 'SSHive-9.9.9-android-universal.apk',
+                      'browser_download_url': 'https://example.com/a.apk',
+                      'size': 1048576,
+                    },
+                    {
+                      'name': 'SSHive-9.9.9-windows-x64.zip',
+                      'browser_download_url': 'https://example.com/w.zip',
+                      'size': 2097152,
+                    },
+                  ],
+                }),
+                location: null,
+                status: 200,
+              );
+      addTearDown(() => UpdateService.debugHttpGetOverride = null);
+
+      final info = await UpdateService.check();
+      expect(info.hasApk, isTrue);
+      expect(info.hasWindowsZip, isTrue);
+      expect(info.windowsZipUrl, 'https://example.com/w.zip');
+      expect(info.windowsZipBytes, 2097152);
+      // 测试宿主是 Windows → 应选 zip 而不是 apk
+      if (Platform.isWindows) {
+        expect(info.downloadUrl, 'https://example.com/w.zip');
+        expect(info.downloadFileName, endsWith('-windows-x64.zip'));
+      } else {
+        expect(info.downloadUrl, 'https://example.com/a.apk');
+      }
+    });
+
+    test('降级路径也能取到 Windows 包', () {
+      const html = '<a href="/Chenwn1186/SSHive/releases/download/v9.9.9/'
+          'SSHive-9.9.9-android-universal.apk">apk</a>'
+          '<a href="/Chenwn1186/SSHive/releases/download/v9.9.9/'
+          'SSHive-9.9.9-windows-x64.zip">zip</a>';
+      final urls = UpdateService.parseAssetUrlsFromAssetsHtml(html);
+      expect(urls.length, 2);
+      expect(UpdateService.parseApkUrlFromAssetsHtml(html), endsWith('.apk'));
+      expect(UpdateService.parseWindowsZipUrlFromAssetsHtml(html),
+          'https://github.com/Chenwn1186/SSHive/releases/download/v9.9.9/'
+          'SSHive-9.9.9-windows-x64.zip');
+      expect(UpdateService.parseWindowsZipUrlFromAssetsHtml('<a href="/x.apk">'),
+          isNull);
+    });
+
+    test('更新助手脚本：等进程退出 → 镜像覆盖 → 重启 → 清理', () {
+      final script = UpdateService.buildWindowsApplyScript(
+        stagedDir: r'C:\Users\u\AppData\Local\SSHive\update\staged-9.9.9',
+        installDir: r'D:\exe dire\SSHive',
+        exeName: 'sshive.exe',
+        pid: 4321,
+        cleanupDir: r'C:\Users\u\AppData\Local\SSHive\update\staged-9.9.9',
+      );
+
+      expect(script, contains('set "PID=4321"'), reason: '要等旧进程退出');
+      expect(script, contains('tasklist'));
+      expect(script, contains('timeout /t 1'));
+      expect(script, contains(r'robocopy "%SRC%" "%DST%"'));
+      expect(script, contains('/MIR'), reason: '镜像覆盖，顺手清掉旧版本残留文件');
+      expect(script, contains('/XJ'), reason: '不跟进 junction');
+      expect(script, contains('sshive.exe.WebView2'),
+          reason: '必须保留 WebView2 运行时数据（登录态）');
+      expect(script, contains(r'start "" "%DST%\sshive.exe"'),
+          reason: '覆盖完要重新拉起');
+      expect(script, contains(r'rd /s /q'));
+    });
+
+    test('更新助手脚本必须是纯 ASCII', () {
+      final script = UpdateService.buildWindowsApplyScript(
+        stagedDir: r'C:\stage',
+        installDir: r'D:\app',
+        exeName: 'sshive.exe',
+        pid: 1,
+        cleanupDir: r'C:\stage',
+      );
+      // cmd.exe 默认代码页 936，脚本里出现非 ASCII 会乱码甚至让参数解析失败
+      final bad = script.runes.where((r) => r > 127).toList();
+      expect(bad, isEmpty,
+          reason: '含非 ASCII 字符：${bad.map(String.fromCharCode).join()}');
     });
   });
 }

@@ -251,10 +251,15 @@ class _HomePageState extends State<HomePage>
         return;
 
       case UpdateStatus.available:
-        final size = info.apkBytes != null
-            ? '${(info.apkBytes! / 1048576).toStringAsFixed(1)} MB'
+        final bytes = info.downloadBytes ?? info.apkBytes;
+        final size = bytes != null
+            ? '${(bytes / 1048576).toStringAsFixed(1)} MB'
             : null;
-        final canInstall = Platform.isAndroid && info.hasApk;
+        // Android：下载 APK 并拉起安装器；Windows：下载绿色包并自更新
+        final canAutoUpdate = info.downloadUrl != null;
+        final actionLabel = !canAutoUpdate
+            ? '打开发布页'
+            : (Platform.isAndroid ? '下载并安装' : '下载并更新');
         await showDialog<void>(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -290,8 +295,8 @@ class _HomePageState extends State<HomePage>
               FilledButton(
                 onPressed: () {
                   Navigator.pop(ctx);
-                  if (canInstall) {
-                    _downloadAndInstall(info);
+                  if (canAutoUpdate) {
+                    _downloadAndApply(info);
                   } else {
                     final url = info.releaseUrl;
                     if (url != null) {
@@ -300,7 +305,7 @@ class _HomePageState extends State<HomePage>
                     }
                   }
                 },
-                child: Text(canInstall ? '下载并安装' : '打开发布页'),
+                child: Text(actionLabel),
               ),
             ],
           ),
@@ -309,8 +314,9 @@ class _HomePageState extends State<HomePage>
     }
   }
 
-  /// 下载 APK 并拉起系统安装器（Android）。带进度条与取消。
-  Future<void> _downloadAndInstall(UpdateInfo info) async {
+  /// 下载更新包并应用：Android 拉起系统安装器；Windows 解包后由助手脚本覆盖并重启。
+  /// 带进度条与取消。
+  Future<void> _downloadAndApply(UpdateInfo info) async {
     var cancelled = false;
     final progress = ValueNotifier<double?>(null);
     try {
@@ -348,7 +354,7 @@ class _HomePageState extends State<HomePage>
 
       final String path;
       try {
-        path = await UpdateService.downloadApk(
+        path = await UpdateService.downloadUpdate(
           info,
           onProgress: (received, total) => progress.value =
               (total != null && total > 0) ? received / total : null,
@@ -375,11 +381,17 @@ class _HomePageState extends State<HomePage>
         return;
       }
 
-      // 下载完成 → 关闭进度框 → 跳转安装
+      // 下载完成 → 关闭进度框 → 按平台应用更新
       if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
         Navigator.of(context, rootNavigator: true).pop();
       }
       if (!mounted) return;
+
+      if (Platform.isWindows) {
+        await _applyWindowsUpdate(path, info);
+        return;
+      }
+
       try {
         await UpdateService.installApk(path);
       } catch (e) {
@@ -405,6 +417,59 @@ class _HomePageState extends State<HomePage>
     } finally {
       progress.dispose();
     }
+  }
+
+  /// Windows：解包新版本 → 用户确认 → 启动助手脚本覆盖安装目录并重启。
+  Future<void> _applyWindowsUpdate(String zipPath, UpdateInfo info) async {
+    final Directory staged;
+    try {
+      staged = await UpdateService.stageWindowsUpdate(zipPath, info);
+    } catch (e) {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('更新包解压失败'),
+          content: Text('$e\n\n更新包已下载，可稍后重试或到发布页手动下载。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('知道了'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('更新已就绪：v${info.latestVersion}'),
+        content: const Text(
+          '现在重启应用即可完成更新。\n\n'
+          '助手会在应用退出后覆盖安装目录并重新启动，'
+          '网页登录状态（WebView2 数据）会保留。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('稍后'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('立即重启并更新'),
+          ),
+        ],
+      ),
+    );
+    if (go != true) {
+      LogBus.instance.info('Update', '用户选择稍后更新，暂存目录：${staged.path}');
+      return;
+    }
+    // 内部会启动助手脚本并 exit(0)
+    await UpdateService.applyWindowsUpdate(staged, info);
   }
 
   /// 网页渲染宽度设置（Android 桌面模式）：滑杆自由调节视口宽度，
