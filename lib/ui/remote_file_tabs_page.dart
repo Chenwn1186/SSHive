@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dartssh2/dartssh2.dart';
@@ -98,6 +99,15 @@ class _RemoteFileTabsTabState extends State<RemoteFileTabsTab> {
   String _progressLabel = '';
   String? _error;
 
+  /// 传输停滞看门狗：远端长时间没有新数据时复位界面。
+  ///
+  /// 为什么必须有：`SftpClient.download()` 在服务端不发结束状态时会一直挂着，
+  /// 于是底部那条进度/提示 bar 永远停在"下载 xxx"（文件其实已经写完）。
+  /// 这里让**界面解卡不依赖底层 future 是否返回**。
+  static const Duration _stallTimeout = Duration(seconds: 45);
+  Timer? _stallTimer;
+  DateTime _lastProgressAt = DateTime.now();
+
   final List<_FileTab> _tabs = [];
   int _activeTab = -1;
 
@@ -132,9 +142,39 @@ class _RemoteFileTabsTabState extends State<RemoteFileTabsTab> {
 
   @override
   void dispose() {
+    _stallTimer?.cancel();
+    _stallTimer = null;
     FileBrowserController.instance.removeListener(_onFileBrowser);
     AppState.instance.removeListener(_onAppState);
     super.dispose();
+  }
+
+  /// 启动停滞看门狗（见 [_stallTimeout] 的说明）。
+  void _armStallWatchdog(String what) {
+    _stallTimer?.cancel();
+    _lastProgressAt = DateTime.now();
+    _stallTimer = Timer.periodic(const Duration(seconds: 5), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      final idle = DateTime.now().difference(_lastProgressAt);
+      if (idle < _stallTimeout) return;
+      t.cancel();
+      _stallTimer = null;
+      LogBus.instance.warn(
+          'SFTP', '$what 停滞 ${idle.inSeconds}s 无数据，复位界面（不再等待底层完成）');
+      // 关键：不论底层 future 是否返回，界面先解卡，避免底部 bar 永久停留
+      if (_busy) setState(() => _busy = false);
+      _snack('$what 停滞（${idle.inSeconds} 秒无数据），已停止等待；'
+          '文件可能不完整，请重试');
+    });
+  }
+
+  /// 结束看门狗（无论成功失败都必须调用）
+  void _disarmStallWatchdog() {
+    _stallTimer?.cancel();
+    _stallTimer = null;
   }
 
   void _onFileBrowser() {
@@ -442,12 +482,14 @@ class _RemoteFileTabsTabState extends State<RemoteFileTabsTab> {
       _progressTotal = size;
       _progressLabel = '下载 $name';
     });
+    _armStallWatchdog('下载 $name');
     try {
       final sink = local.openWrite();
       await sftp.download(
         remote,
         sink,
         onProgress: (bytes) {
+          _lastProgressAt = DateTime.now(); // 喂狗：有数据就说明没停滞
           if (mounted) {
             setState(() {
               _progressBytes = bytes;
@@ -457,14 +499,30 @@ class _RemoteFileTabsTabState extends State<RemoteFileTabsTab> {
         },
         closeDestination: true,
       );
+      _lastProgressAt = DateTime.now();
       LogBus.instance.info('SFTP', '下载完成: $remote → ${local.path}');
       if (!mounted) return;
-      setState(() => _busy = false);
+      // 校验落地大小（服务端提前结束/半包时给出明确提示，而不是静默"成功"）
+      var landed = -1;
+      try {
+        landed = await local.length();
+      } catch (_) {}
+      if (!mounted) return; // 上面又 await 了一次，context 使用前重新确认
+      final incomplete = size > 0 && landed >= 0 && landed != size;
+      if (incomplete) {
+        LogBus.instance.warn(
+            'SFTP', '下载大小不符: 期望 $size 实际 $landed（$local）');
+      }
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
           SnackBar(
-            content: Text('已下载到 ${local.path}'),
+            // 显式时长 + 关闭按钮：确保这条提示一定会自己消失，也能手动关掉
+            duration: const Duration(seconds: 8),
+            showCloseIcon: true,
+            content: Text(incomplete
+                ? '下载可能不完整：${_fmtSize(landed)} / ${_fmtSize(size)}\n${local.path}'
+                : '已下载到 ${local.path}'),
             action: SnackBarAction(
               label: '分享',
               onPressed: () => SharePlus.instance
@@ -475,8 +533,11 @@ class _RemoteFileTabsTabState extends State<RemoteFileTabsTab> {
     } catch (e) {
       LogBus.instance.error('SFTP', '下载失败: $e');
       if (!mounted) return;
-      setState(() => _busy = false);
       _snack('下载失败: $e');
+    } finally {
+      // 无论成功、失败还是被中断，都必须复位底部进度/提示 bar
+      _disarmStallWatchdog();
+      if (mounted && _busy) setState(() => _busy = false);
     }
   }
 
@@ -571,13 +632,14 @@ class _RemoteFileTabsTabState extends State<RemoteFileTabsTab> {
       _progressLabel = '读取 ${node.name}';
       _selectedPath = full;
     });
+    _armStallWatchdog('读取 ${node.name}');
     try {
       final handle =
           await sftp.open(full, mode: SftpFileOpenMode.read);
       final bytes = await handle.readBytes();
       await handle.close();
+      _lastProgressAt = DateTime.now();
       if (!mounted) return;
-      setState(() => _busy = false);
       final serverName = _serverNameOf(_serverId!);
       if (kind == _TabKind.image) {
         _addTab(_FileTab(
@@ -606,8 +668,10 @@ class _RemoteFileTabsTabState extends State<RemoteFileTabsTab> {
       ));
     } catch (e) {
       if (!mounted) return;
-      setState(() => _busy = false);
       _snack('读取失败: $e');
+    } finally {
+      _disarmStallWatchdog();
+      if (mounted && _busy) setState(() => _busy = false);
     }
   }
 
@@ -840,7 +904,12 @@ class _RemoteFileTabsTabState extends State<RemoteFileTabsTab> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(msg)));
+      ..showSnackBar(SnackBar(
+        content: Text(msg),
+        // 显式时长：不允许提示条无限停留在底部
+        duration: const Duration(seconds: 5),
+        showCloseIcon: true,
+      ));
   }
 
   /// 在指定目录打开终端（与终端管理联动，自动切到终端 Tab）。
